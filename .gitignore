@@ -1,0 +1,10 @@
+# Editor / OS / Python junk only. Submitted solver binaries are the artifact of
+# record and are intentionally tracked (see docs/RELICENSING.md).
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.swp
+# Local scratch / build dirs created at runtime
+gnfs_work/
+*.log

@@ -1,0 +1,94 @@
+HOW THE BINARIES IN THIS DIRECTORY ARE BUILT
+============================================
+
+This directory contains binaries from two different sources. They are treated
+differently and are built differently.
+
+
+1. cado2msieve  --  OUR CODE
+----------------------------
+Source: cado2msieve.c, in this directory.
+
+  gcc -O2 -march=x86-64-v3 -o cado2msieve cado2msieve.c
+
+It bridges modern CADO purge output into msieve's cado_filter=1 path. Current
+CADO writes "# nrows ncolsmax ncols" followed by "a,b:ideals" with a,b in HEX
+and no leading relation index, while msieve (gnfs/relation.c, function
+nfs_convert_cado_cycles) expects a relation number as the first token. Rather
+than reorder anything, cado2msieve emits the relations in PURGE ORDER and makes
+the .purged mapping the identity, which is self-consistent.
+
+
+2. dup1, dup2, freerel, merge, purge, replay  --  CADO-NFS (third party)
+-----------------------------------------------------------------------
+These are stock CADO-NFS filter binaries. They are NOT our code.
+
+Upstream:  https://gitlab.inria.fr/cado-nfs/cado-nfs.git
+Pinned at: commit 9bb8fc079
+           git describe -> 2.3.0-6971-g9bb8fc079
+           (this was CADO master on 2026-08-05)
+
+The exact source is shipped with this submission as
+    vendor/cado-nfs-9bb8fc079.tar.xz
+which is a verbatim `git archive` of that commit. To rebuild:
+
+  tar xf vendor/cado-nfs-9bb8fc079.tar.xz
+  cd cado-nfs
+  patch -p1 < ../vendor/cado-gzip-strcmp.patch
+  cp ../vendor/cado-local.sh local.sh
+  make -j"$(nproc)" freerel dup1 dup2 purge merge replay sqrt
+
+The binaries appear under build/<hostname>/ :
+    sieve/freerel      filter/dup1     filter/dup2
+    filter/purge       filter/merge    filter/replay
+    sqrt/sqrt          -> shipped as msieve-gpu/cado_sqrt
+
+Building cado-nfs additionally requires cmake, libgmp-dev, zlib1g-dev,
+python3, python3-flask and python3-requests. Without flask, cmake aborts at
+config/python.cmake with "Importing the flask Python module failed."
+
+
+2a. THE ONE MODIFICATION WE MAKE  (vendor/cado-gzip-strcmp.patch)
+-----------------------------------------------------------------
+One upstream bug fix, one line, in utils/gzip.cpp:
+
+    -        if (r.suffix == s)
+    +        if (strcmp(r.suffix, s) == 0)
+
+is_supported_compression_format() compares char const* POINTERS, so no
+user-supplied string can ever match and -outfmt is always rejected with
+"Error, output compression format unsupported". Without compressed
+intermediates the filter needs roughly 8.6 GB of the validator's 10 GB tmpfs
+for the dup1 split alone. <cstring> is already included upstream.
+
+cado_filter.sh probes for this at runtime on a 100-line sample and falls back
+to uncompressed output with a loud warning, so an unpatched CADO degrades
+rather than breaks -- but it will then need the full ~8.6 GB.
+
+
+2b. COMPILE FLAGS  (vendor/cado-local.sh, dropped in as local.sh)
+------------------------------------------------------------------
+    CFLAGS="-O2 -march=x86-64-v3"
+    CXXFLAGS="-O2 -march=x86-64-v3"
+
+NEVER -march=native. CADO's DEFAULT build emits -mavx512f. An AVX-512 binary
+SIGILLs (exit 132) on any validator CPU without it, and there is no way to
+recover from that at runtime -- the run factors nothing. x86-64-v3 (AVX2+BMI2)
+is the project-wide floor and matches gpu_nfs_siever/build.sh.
+
+Verify after building -- this MUST print 0 for every binary:
+
+    objdump -d filter/purge | grep -cE '%zmm|\{%k[0-7]\}'
+
+
+3. LICENSE
+----------
+CADO-NFS is distributed under the GNU Lesser General Public License, version
+2.1 or later. The full license text ships with the source archive above, at
+    cado-nfs/COPYING
+(extract it with:  tar xf vendor/cado-nfs-9bb8fc079.tar.xz -O cado-nfs/COPYING)
+
+CADO-NFS is publicly available to anyone on equal terms from the upstream URL
+given in section 2. The LGPL permits validators to run these binaries and the
+subnet to use them as intended. Our single modification to CADO is the one-line
+patch disclosed in section 2a and shipped as source.
