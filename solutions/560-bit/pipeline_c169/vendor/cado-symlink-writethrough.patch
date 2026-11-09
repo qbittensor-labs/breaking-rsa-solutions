@@ -1,0 +1,87 @@
+--- a/utils/gzip.cpp
++++ b/utils/gzip.cpp
+@@ -251,6 +251,15 @@
+     return new_commands;
+ }
+ 
++
++#include <sys/stat.h>
++/* RSA-530 patch: when an OUTPUT path is already a symlink (we point these at memfds via
++ * /proc/<pid>/fd/<n> to keep multi-GB filter intermediates off a 10 GB tmpfs), write THROUGH it
++ * instead of writing a temp file and rename()-ing over the link. */
++static inline bool cado_path_is_symlink(char const * p) {
++    struct stat lsb;
++    return p && lstat(p, &lsb) == 0 && S_ISLNK(lsb.st_mode);
++}
+ FILE * fopen_maybe_compressed2(char const * orig_name, char const * mode,
+                                int * p_pipeflag, char const ** suf)
+ {
+@@ -271,7 +280,7 @@
+ 
+         /* Just *any* file that we write to will get a .tmp.$PID suffix
+          */
+-        if (strchr(mode, 'w')) {
++        if (strchr(mode, 'w') && !cado_path_is_symlink(orig_name)) {
+             name = tempname = fmt::format("{}.tmp.{}", name, getpid());
+             std::ofstream dummy(tempname, std::ios::out);
+             if (dummy.is_open()) {
+--- a/utils/fstream_maybe_compressed.cpp
++++ b/utils/fstream_maybe_compressed.cpp
+@@ -23,11 +23,20 @@
+     open(name, mode);
+ }
+ 
++
++#include <sys/stat.h>
++/* RSA-530 patch: when an OUTPUT path is already a symlink (we point these at memfds via
++ * /proc/<pid>/fd/<n> to keep multi-GB filter intermediates off a 10 GB tmpfs), write THROUGH it
++ * instead of writing a temp file and rename()-ing over the link. */
++static inline bool cado_path_is_symlink(char const * p) {
++    struct stat lsb;
++    return p && lstat(p, &lsb) == 0 && S_ISLNK(lsb.st_mode);
++}
+ void streambase_maybe_compressed::open(std::string const & name_arg, std::ios_base::openmode mode)
+ {
+     std::string name = name_arg;
+     orig_name = name;
+-    if (mode & std::ios_base::out) {
++    if ((mode & std::ios_base::out) && !cado_path_is_symlink(name.c_str())) {
+         // fmtlib's fmt::format oddly mentions that it can throw a format
+         // error, while its constexpr nature should be able to mark it as
+         // impossible.
+--- a/filter/dup2.cpp
++++ b/filter/dup2.cpp
+@@ -224,6 +224,15 @@
+     }
+ }; /* }}} */
+ 
++
++#include <sys/stat.h>
++/* RSA-530 patch: when an OUTPUT path is already a symlink (we point these at memfds via
++ * /proc/<pid>/fd/<n> to keep multi-GB filter intermediates off a 10 GB tmpfs), write THROUGH it
++ * instead of writing a temp file and rename()-ing over the link. */
++static inline bool cado_path_is_symlink(char const * p) {
++    struct stat lsb;
++    return p && lstat(p, &lsb) == 0 && S_ISLNK(lsb.st_mode);
++}
+ struct dup2_process { /* {{{ */
+     output_specification output;
+ 
+@@ -717,6 +726,8 @@
+                 "roots mod p):\n", nthreads_for_roots);
+         for(auto const & f : files) {
+             auto [ oname, oname_tmp ] = output.get_outfilename_from_infilename(f);
++            const bool through = cado_path_is_symlink(oname.c_str());
++            if (through) oname_tmp = oname;
+             ofstream_maybe_compressed out(oname_tmp);
+             nrels = ndup = 0;
+ 
+@@ -735,7 +746,7 @@
+ 
+             out.close();
+             int rc;
+-            rc = rename(oname_tmp.c_str(), oname.c_str());
++            rc = through ? 0 : rename(oname_tmp.c_str(), oname.c_str());
+             if (rc < 0)
+                 throw cado::error("rename({} -> {}): {}",
+                             oname_tmp, oname, strerror(errno));

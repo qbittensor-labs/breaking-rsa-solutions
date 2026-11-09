@@ -1,0 +1,28 @@
+rsa560_solver -- RSA-560 (c169) GNFS solver for Enigma SN63 "Breaking RSA"
+================================================================================
+
+Our own code (pipeline_c169/, the gpu/*_patch.py patchers, gpu/sqrt_l00.hpp, Dockerfile) is under the MIT License
+in LICENSE. This submission also contains, or builds, the following third-party software:
+
+1. CADO-NFS, Cognition Research tree (third_party/cado-nfs-public/)
+   https://github.com/cognition-research/cado-nfs-public, commit b5ca9c4fd3e331edc8978f93830f8de1e8dda70c
+   (tag `latest`, 2026-09-25). Includes gpu-siever/ (glas-gpu, the GPU lattice siever, and gps1, the GPU
+   polynomial selection) and gf2x. License: GNU Lesser General Public License v2.1 or later -- the full text is in
+   third_party/cado-nfs-public/COPYING and the authors are listed in third_party/cado-nfs-public/AUTHORS.
+   The source is shipped UNMODIFIED except that the build replaces its symbolic links with copies of their targets
+   (the submission zip may not contain symlinks). The Docker build then modifies it with these patches, all
+   shipped here in source form:
+     pipeline_c169/vendor/cado-symlink-writethrough-cognition.patch, gpu/sqrt_l00_patch.py (+ gpu/sqrt_l00.hpp),
+     gpu/chars_pre_patch.py, gpu/glas_adjust_patch.py, gpu/glas_coprime_patch.py, gpu/glas_prefetch_patch.py,
+     gpu/glas_xfuse_patch.py, gpu/glas_region_patch.py, gpu/glas_xfgrid_patch.py, gpu/glas_session_patch.py,
+     gpu/glas_narrow_patch.py, gpu/glas_p1_patch.py, gpu/glas_empty_pattern_patch.py, gpu/gps1_stats_patch.py,
+     gpu/gps1_fastsort_patch.py.
+   The modified files keep the LGPL-2.1+ license. gpu_mul.so is built from sqrt/gpu_mul.cu of the same tree.
+
+2. Enigma challenge SDK (engine/enigma_challenges/), https://github.com/qbittensor-labs/enigma, MIT License,
+   Copyright (c) 2026 qBitTensor Labs, vendored verbatim (license header in each file).
+
+3. Downloaded at image build time (not shipped in this zip): the NVIDIA CUDA base images
+   nvidia/cuda:13.0.1-{devel,runtime}-ubuntu24.04 (NVIDIA CUDA EULA; Ubuntu packages under their own licenses),
+   and from PyPI numpy (BSD-3-Clause), cupy-cuda13x (MIT), gmpy2 (LGPL-3.0+), and the NVIDIA CUDA wheels
+   (cuda-toolkit, nvidia-cublas, nvidia-nvjitlink, cuda-pathfinder; NVIDIA license).

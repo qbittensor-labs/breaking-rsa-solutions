@@ -1,0 +1,2645 @@
+# Reference diff: gchilders/msieve_nfsathome @ 059b79e (msieve 1.54)  ->  vendor/msieve/ as shipped.
+# Informational: lets a reviewer mechanically confirm what differs. See THIRD-PARTY.md 2.1.
+
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/Changes vendor/msieve/Changes
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/Changes	2026-08-25 18:39:57.751219999 +0000
++++ vendor/msieve/Changes	2026-07-01 21:44:57.000000000 +0000
+@@ -1,4 +1,4 @@
+-Version 1.54:
++Vesrion 1.54:
+ 	- Merged the CPU lanczos code from the msieve-lacuda branch, which 
+ 		includes long vector support; compiling with long vectors on
+ 		a modern machine with a modern gcc has yielded a 10-15%
+@@ -7,8 +7,6 @@
+ 		clique removal for datasets larger then 16GB; after years
+ 		of frustration this finally fixes the 'large dataset bug'
+ 	- Fixed errors in MPI block Lanczos (thanks Greg Childers)
+-	- Updated NFS to allow relation b values > 2^32; large SNFS jobs 
+-	  are starting to have a lot of these relations
+ 	- NFS Polynomial selection updates from many people:
+ 		- improved estimate of final e-value
+ 		- improved handling of the factors of leading alg. coefficient
+@@ -18,16 +16,11 @@
+ 	- Add support for more modern Visual Studio and CUDA versions 
+ 		(thanks Brian Gladman)
+ 	- Made the maximum merge weight configurable (thanks Lionel Debroux)
+-	- Fix typo in dd_precision_is_ieee (thanks Ben Buhrow)
+ 	- Updated the makefile to build GPU code for more recent GPUs
+-	- Fixed typo declaring gzip pointers (thanks ccorn)
+ 	- Updated CUB version
+ 	- Added a fix that avoids a crash when linking to GMP 6.2.0 
+ 		(thanks bsquared)
+-	- Added a fix in the singleton removal (thanks NyanCat/gchilders)
+ 	- Changed the default NFS filtering target density to 90
+-	- Removed CADO filtering conversion, the file format for that was 
+-	  changed ages ago
+ 
+ Version 1.53: 11/11/16
+ 	- Replaced the GPU sorting library with calls to CUB; this is more
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/batch_factor.c vendor/msieve/common/batch_factor.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/batch_factor.c	2026-08-25 18:39:57.779220135 +0000
++++ vendor/msieve/common/batch_factor.c	2026-07-01 21:44:57.000000000 +0000
+@@ -546,7 +546,7 @@
+ }
+ 
+ /*------------------------------------------------------------------*/
+-void relation_batch_add(int64 a, uint64 b, 
++void relation_batch_add(int64 a, uint32 b, 
+ 			uint32 *factors_r, uint32 num_factors_r, 
+ 			mpz_t unfactored_r_in,
+ 			uint32 *factors_a, uint32 num_factors_a, 
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/filter/singleton.c vendor/msieve/common/filter/singleton.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/filter/singleton.c	2026-08-25 18:39:57.783220154 +0000
++++ vendor/msieve/common/filter/singleton.c	2026-07-01 21:44:57.000000000 +0000
+@@ -532,7 +532,7 @@
+ 	filter->num_ideals = num_ideals;
+ 	filter->relation_array = relation_array = 
+ 			(relation_ideal_t *)xrealloc(relation_array,
+-				(old_relation - relation_array + 1) *
++				(curr_relation - relation_array + 1) *
+ 				sizeof(relation_ideal_t));
+ 
+ 	curr_relation = relation_array;
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/lanczos/lanczos.c vendor/msieve/common/lanczos/lanczos.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/lanczos/lanczos.c	2026-08-25 18:39:57.783220154 +0000
++++ vendor/msieve/common/lanczos/lanczos.c	2026-07-01 21:44:57.000000000 +0000
+@@ -957,8 +957,6 @@
+ 	logprintf(obj, "memory use: %.1f MB\n", (double)
+ 			(packed_matrix_sizeof(packed_matrix)) / 1048576);
+ 
+-	logprintf(obj, "VBITS = %d\n", VBITS);
+-
+ 	/* initialize */
+ 
+ 	*num_deps_found = 0;
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/lanczos/lanczos_pre.c vendor/msieve/common/lanczos/lanczos_pre.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/lanczos/lanczos_pre.c	2026-08-25 18:39:57.787220174 +0000
++++ vendor/msieve/common/lanczos/lanczos_pre.c	2026-08-21 18:59:16.000000000 +0000
+@@ -13,6 +13,7 @@
+ --------------------------------------------------------------------*/
+ 
+ #include "lanczos.h"
++#include <omp.h>
+ 
+ typedef struct {
+ 	uint32 index;
+@@ -272,13 +273,37 @@
+ 	}
+ 	reduced_rows = j;
+ 
+-	for (i = 0; i < reduced_cols; i++) {
+-		la_col_t *col = cols + i;
+-		for (j = 0; j < col->weight; j++) {
+-			col->data[j] = old_counts[col->data[j]].index;
++	/* ---- PARALLEL ROW REMAP (2026-08-21) --------------------------------
++	   ~4.3 M columns x ~92 entries on c151: 400 M scattered lookups plus one
++	   small qsort per column. It is the largest remaining serial block in
++	   -nc2's reduce/count/dump phase (Worth-Try.md §2a: 32 s), and -nc2 is the
++	   biggest CPU-exposed stage of an otherwise GPU-bound run, so a
++	   slower-single-core validator host is charged all of it.
++
++	   Unlike everything else in reduce_matrix this loop carries NO order
++	   dependence at all: column i reads only old_counts (read-only here) and
++	   writes only its own col->data, and the qsort sorts that column alone.
++	   The result is therefore identical for any thread count, by construction
++	   rather than by argument -- which is what lets it be threaded while the
++	   singleton/clique cascade below stays strictly serial.
++
++	   obj->num_threads is msieve's own -t, so -t 1 walks this with one thread. */
++	{
++		int32 ci;
++		uint32 nthreads = obj->num_threads ? obj->num_threads : 1;
++		if (nthreads > 64)
++			nthreads = 64;
++		#pragma omp parallel for schedule(dynamic, 4096) \
++					num_threads(nthreads)
++		for (ci = 0; ci < (int32)reduced_cols; ci++) {
++			la_col_t *col = cols + ci;
++			uint32 jj;
++			for (jj = 0; jj < col->weight; jj++) {
++				col->data[jj] = old_counts[col->data[jj]].index;
++			}
++			qsort(col->data, (size_t)col->weight,
++					sizeof(uint32), compare_uint32);
+ 		}
+-		qsort(col->data, (size_t)col->weight, 
+-				sizeof(uint32), compare_uint32);
+ 	}
+ 	free(old_counts);
+ 
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/savefile.c vendor/msieve/common/savefile.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/common/savefile.c	2026-08-25 18:39:57.787220174 +0000
++++ vendor/msieve/common/savefile.c	2026-07-01 21:44:57.000000000 +0000
+@@ -152,7 +152,7 @@
+ 			fclose(fp);
+ 		}
+ 		if (s->is_a_FILE) {
+-			s->fp = (gzFile)fopen(s->name, "a");
++			s->fp = (gzFile *)fopen(s->name, "a");
+ 		} else {
+ 			s->fp = gzopen(s->name, "a");
+ 			s->isCompressed = 1;
+Only in vendor/msieve/cub: cub
+Only in vendor/msieve/cub: Makefile
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/cub/sort_engine.cu vendor/msieve/cub/sort_engine.cu
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/cub/sort_engine.cu	2026-08-25 18:39:57.787220174 +0000
++++ vendor/msieve/cub/sort_engine.cu	2026-07-01 21:44:57.000000000 +0000
+@@ -1,187 +1,207 @@
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <cuda.h>
+-#include <cub/cub.cuh>
+-
+-#include "sort_engine.h"
+-
+-typedef unsigned int uint32;
+-
+-#if defined(_WIN32) || defined (_WIN64)
+-	#define SORT_ENGINE_DECL __declspec(dllexport)
+-	typedef unsigned __int64 uint64;
+-#else
+-	#define SORT_ENGINE_DECL __attribute__((visibility("default")))
+-	typedef unsigned long long uint64;
+-#endif
+-
+-#define CUDA_TRY(func) \
+-	{ 			 					\
+-		cudaError_t status = func;				\
+-		if (status != CUDA_SUCCESS) {				\
+-			const char * str = cudaGetErrorString(status);	\
+-			if (!str)					\
+-				str = "Unknown";			\
+-			printf("error (%s:%d): %s\n", __FILE__, __LINE__, str);\
+-			exit(-1);					\
+-		}							\
+-	}
+-
+-struct sort_engine
+-{
+-	sort_engine()
+-	  : temp_data(0), temp_size(0)
+-	{
+-	}
+-
+-	~sort_engine()
+-	{
+-		if (temp_size)
+-			CUDA_TRY(cudaFree(temp_data))
+-	}
+-
+-	void * temp_data;
+-	size_t temp_size;
+-};
+-
+-extern "C"
+-{
+-
+-SORT_ENGINE_DECL void * 
+-sort_engine_init(void)
+-{
+-	return new sort_engine;
+-}
+-
+-SORT_ENGINE_DECL void 
+-sort_engine_free(void * e)
+-{
+-	delete (sort_engine *)e;
+-}
+-
+-SORT_ENGINE_DECL void 
+-sort_engine_run(void * e, sort_data_t * data)
+-{
+-	// arrays are assumed packed together; check
+-	// they would all start on a power-of-two boundary
+-
+-	if (data->num_arrays > 1 && data->num_elements % 16) {
+-		printf("sort_engine: invalid array size\n");
+-		exit(-1);
+-	}
+-
+-	sort_engine *engine = (sort_engine *)e;
+-
+-	if (data->key_bits <= 32) {
+-		for (size_t i = 0; i < data->num_arrays; i++) {
+-
+-			cub::DoubleBuffer<uint32> keys(
+-					(uint32 *)data->keys_in +
+-						i * data->num_elements,
+-					(uint32 *)data->keys_in_scratch +
+-						i * data->num_elements);
+-
+-			cub::DoubleBuffer<uint32> values(
+-					(uint32 *)data->data_in +
+-						i * data->num_elements,
+-					(uint32 *)data->data_in_scratch +
+-						i * data->num_elements);
+-
+-			// allocate device temp space (persistently)
+-
+-			size_t temp_size;
+-
+-			cub::DeviceRadixSort::SortPairs(
+-						0,
+-						temp_size,
+-						keys,
+-						values,
+-						data->num_elements,
+-						0,
+-						data->key_bits,
+-						data->stream);
+-
+-			if (temp_size > engine->temp_size) {
+-				if (engine->temp_size)
+-					CUDA_TRY(cudaFree(engine->temp_data))
+-
+-				CUDA_TRY(cudaMalloc(&engine->temp_data, temp_size))
+-				engine->temp_size = temp_size;
+-			}
+-
+-			// sort for real
+-
+-			cub::DeviceRadixSort::SortPairs(
+-						engine->temp_data,
+-						temp_size,
+-						keys,
+-						values,
+-						data->num_elements,
+-						0,
+-						data->key_bits,
+-						data->stream);
+-
+-			if (keys.selector)
+-				std::swap(data->keys_in, data->keys_in_scratch);
+-			if (values.selector)
+-				std::swap(data->data_in, data->data_in_scratch);
+-		}
+-	}
+-	else {
+-		for (size_t i = 0; i < data->num_arrays; i++) {
+-
+-			cub::DoubleBuffer<uint64> keys(
+-					(uint64 *)data->keys_in +
+-						i * data->num_elements,
+-					(uint64 *)data->keys_in_scratch +
+-						i * data->num_elements);
+-
+-			cub::DoubleBuffer<uint32> values(
+-					(uint32 *)data->data_in +
+-						i * data->num_elements,
+-					(uint32 *)data->data_in_scratch +
+-						i * data->num_elements);
+-
+-			// allocate device temp space (persistently)
+-
+-			size_t temp_size;
+-
+-			cub::DeviceRadixSort::SortPairs(
+-						0,
+-						temp_size,
+-						keys,
+-						values,
+-						data->num_elements,
+-						0,
+-						data->key_bits,
+-						data->stream);
+-
+-			if (temp_size > engine->temp_size) {
+-				if (engine->temp_size)
+-					CUDA_TRY(cudaFree(engine->temp_data))
+-
+-				CUDA_TRY(cudaMalloc(&engine->temp_data, temp_size))
+-				engine->temp_size = temp_size;
+-			}
+-
+-			// sort for real
+-
+-			cub::DeviceRadixSort::SortPairs(
+-						engine->temp_data,
+-						temp_size,
+-						keys,
+-						values,
+-						data->num_elements,
+-						0,
+-						data->key_bits,
+-						data->stream);
+-
+-			if (keys.selector)
+-				std::swap(data->keys_in, data->keys_in_scratch);
+-			if (values.selector)
+-				std::swap(data->data_in, data->data_in_scratch);
+-		}
+-	}
+-}
+-
+-} // extern "C"
++/* simple DSO interface for parallel simultaneous sort;
++   keys are 32- or 64-bit unsigned integers and values are
++   32-bit unsigned integers.
++
++   Built against the CUB that ships with the CUDA toolkit (>= 12.x)
++   rather than the ancient sm_20-era CUB that used to be vendored in
++   this directory: the in-tree copy carried hand-tuned radix-sort
++   policies only up to sm_20/sm_52, so on Blackwell (sm_120) it fell
++   back to generic, poorly-occupied kernels. Toolkit CUB auto-selects
++   architecture-tuned policies for sm_120, which is the whole point of
++   rebuilding this for the RTX PRO 6000. The DSO ABI (sort_data_t and
++   the three entry points below) is unchanged, so msieve loads it as
++   before. */
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <utility>
++#include <cuda.h>
++#include <cub/cub.cuh>
++
++#include "sort_engine.h"
++
++typedef unsigned int uint32;
++
++#if defined(_WIN32) || defined (_WIN64)
++	#define SORT_ENGINE_DECL __declspec(dllexport)
++	typedef unsigned __int64 uint64;
++#else
++	#define SORT_ENGINE_DECL __attribute__((visibility("default")))
++	typedef unsigned long long uint64;
++#endif
++
++#define CUDA_TRY(func) \
++	{ 			 					\
++		cudaError_t status = func;				\
++		if (status != cudaSuccess) {				\
++			const char * str = cudaGetErrorString(status);	\
++			if (!str)					\
++				str = "Unknown";			\
++			printf("error (%s:%d): %s\n", __FILE__, __LINE__, str);\
++			exit(-1);					\
++		}							\
++	}
++
++struct sort_engine
++{
++	sort_engine()
++	  : temp_data(0), temp_size(0)
++	{
++	}
++
++	~sort_engine()
++	{
++		if (temp_size)
++			CUDA_TRY(cudaFree(temp_data))
++	}
++
++	/* make sure the persistent temp buffer holds at least 'needed'
++	   bytes; grows monotonically so a single query up front covers
++	   every array in a batch (they are all the same size) */
++	void reserve(size_t needed)
++	{
++		if (needed > temp_size) {
++			if (temp_size)
++				CUDA_TRY(cudaFree(temp_data))
++			CUDA_TRY(cudaMalloc(&temp_data, needed))
++			temp_size = needed;
++		}
++	}
++
++	void * temp_data;
++	size_t temp_size;
++};
++
++extern "C"
++{
++
++SORT_ENGINE_DECL void *
++sort_engine_init(void)
++{
++	return new sort_engine;
++}
++
++SORT_ENGINE_DECL void
++sort_engine_free(void * e)
++{
++	delete (sort_engine *)e;
++}
++
++SORT_ENGINE_DECL void
++sort_engine_run(void * e, sort_data_t * data)
++{
++	// arrays are assumed packed together; check
++	// they would all start on a power-of-two boundary
++
++	if (data->num_arrays > 1 && data->num_elements % 16) {
++		printf("sort_engine: invalid array size\n");
++		exit(-1);
++	}
++
++	sort_engine *engine = (sort_engine *)e;
++
++	if (data->key_bits <= 32) {
++
++		// every array in the batch has the same element count and
++		// key width, so the temp-storage requirement is identical;
++		// query it once instead of once per array.
++
++		size_t temp_size = 0;
++		cub::DoubleBuffer<uint32> probe_keys(
++				(uint32 *)data->keys_in,
++				(uint32 *)data->keys_in_scratch);
++		cub::DoubleBuffer<uint32> probe_values(
++				(uint32 *)data->data_in,
++				(uint32 *)data->data_in_scratch);
++		CUDA_TRY(cub::DeviceRadixSort::SortPairs(
++					0, temp_size,
++					probe_keys, probe_values,
++					data->num_elements,
++					0, data->key_bits,
++					data->stream))
++		engine->reserve(temp_size);
++
++		for (size_t i = 0; i < data->num_arrays; i++) {
++
++			cub::DoubleBuffer<uint32> keys(
++					(uint32 *)data->keys_in +
++						i * data->num_elements,
++					(uint32 *)data->keys_in_scratch +
++						i * data->num_elements);
++
++			cub::DoubleBuffer<uint32> values(
++					(uint32 *)data->data_in +
++						i * data->num_elements,
++					(uint32 *)data->data_in_scratch +
++						i * data->num_elements);
++
++			// sort for real
++
++			CUDA_TRY(cub::DeviceRadixSort::SortPairs(
++						engine->temp_data,
++						temp_size,
++						keys,
++						values,
++						data->num_elements,
++						0,
++						data->key_bits,
++						data->stream))
++
++			if (keys.selector)
++				std::swap(data->keys_in, data->keys_in_scratch);
++			if (values.selector)
++				std::swap(data->data_in, data->data_in_scratch);
++		}
++	}
++	else {
++
++		size_t temp_size = 0;
++		cub::DoubleBuffer<uint64> probe_keys(
++				(uint64 *)data->keys_in,
++				(uint64 *)data->keys_in_scratch);
++		cub::DoubleBuffer<uint32> probe_values(
++				(uint32 *)data->data_in,
++				(uint32 *)data->data_in_scratch);
++		CUDA_TRY(cub::DeviceRadixSort::SortPairs(
++					0, temp_size,
++					probe_keys, probe_values,
++					data->num_elements,
++					0, data->key_bits,
++					data->stream))
++		engine->reserve(temp_size);
++
++		for (size_t i = 0; i < data->num_arrays; i++) {
++
++			cub::DoubleBuffer<uint64> keys(
++					(uint64 *)data->keys_in +
++						i * data->num_elements,
++					(uint64 *)data->keys_in_scratch +
++						i * data->num_elements);
++
++			cub::DoubleBuffer<uint32> values(
++					(uint32 *)data->data_in +
++						i * data->num_elements,
++					(uint32 *)data->data_in_scratch +
++						i * data->num_elements);
++
++			// sort for real
++
++			CUDA_TRY(cub::DeviceRadixSort::SortPairs(
++						engine->temp_data,
++						temp_size,
++						keys,
++						values,
++						data->num_elements,
++						0,
++						data->key_bits,
++						data->stream))
++
++			if (keys.selector)
++				std::swap(data->keys_in, data->keys_in_scratch);
++			if (values.selector)
++				std::swap(data->data_in, data->data_in_scratch);
++		}
++	}
++}
++
++} // extern "C"
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/filter/duplicate.c vendor/msieve/gnfs/filter/duplicate.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/filter/duplicate.c	2026-08-25 18:39:57.791220193 +0000
++++ vendor/msieve/gnfs/filter/duplicate.c	2026-07-01 21:44:57.000000000 +0000
+@@ -13,6 +13,7 @@
+ --------------------------------------------------------------------*/
+ 
+ #include "filter.h"
++#include <omp.h>
+ 
+ /* produce <savefile_name>.d, a binary file containing the
+    line numbers of relations in the savefile that should *not*
+@@ -148,7 +149,7 @@
+ 		   relation collide in the table of bits */
+ 
+ 		a = strtoll(buf, &next_field, 10);
+-		b = strtoull(next_field + 1, NULL, 10);
++		b = strtoul(next_field + 1, NULL, 10);
+ 		key[0] = (uint32)a;
+ 		key[1] = ((a >> 32) & 0x1f) | (b << 5);
+ 
+@@ -255,6 +256,7 @@
+ 	char buf[LINE_BUF_SIZE];
+ 	uint32 num_relations;
+ 	uint32 num_collisions;
++	uint32 num_skipped_b;
+ 	uint32 num_composite;
+ 	uint8 *hashtable;
+ 	uint32 blob[2];
+@@ -301,7 +303,14 @@
+ 	log2_hashtable1_size = 28;
+ 	if (rel_size > 0.0) {
+ 		double num_rels; /* estimated */
+-		num_rels = get_file_size(savefile->name) / rel_size;
++#if 0 /* WAS: !defined(WIN32) && !defined(_WIN64) */
++		if (savefile->isCompressed) {
++			char name_gz[256];
++			sprintf(name_gz, "%s.gz", savefile->name);
++			num_rels = get_file_size(name_gz) / 0.55 / rel_size;
++		} else 
++#endif /* get_file_size( ) will now do the same internally */
++			num_rels = get_file_size(savefile->name) / rel_size;
+ 		log2_hashtable1_size = log(num_rels * 10.0) / M_LN2 + 0.5;
+ 	}
+ 	if (log2_hashtable1_size < 25)
+@@ -327,126 +336,196 @@
+ 	curr_relation = (uint32)(-1);
+ 	num_relations = 0;
+ 	num_collisions = 0;
++	num_skipped_b = 0;
+ 	num_composite = 0;
+ 	mpz_init(scratch);
+-	savefile_read_line(buf, sizeof(buf), savefile);
+-	while (!savefile_eof(savefile)) {
+-
+-		int32 status;
+-		uint32 hashval;
+-
+-		if (buf[0] != '-' && !isdigit(buf[0])) {
+ 
+-			/* no relation on this line */
+-
+-			savefile_read_line(buf, sizeof(buf), savefile);
+-			continue;
++	/* ---- parallel pass 1 ------------------------------------------------
++	   The per-relation cost here is nfs_read_relation(): it re-derives the
++	   norm and divides out every factor with GMP -- essentially all of
++	   pass-1's time, and completely independent between relations. So parse
++	   a batch of relation lines in PARALLEL (each thread with its own poly
++	   scratch), then apply every shared-state update (hashtable toggle,
++	   collision file, prime_bins, free relations, bad-relation list,
++	   counters) SEQUENTIALLY in the original relation order. The parse of
++	   relation k is a pure function of its line + the read-only polynomials,
++	   so the batched result is identical to the serial one and the output
++	   (collision file, prime_bins, free-rel bits, counts) is byte-for-byte
++	   the same; only the GMP-heavy parse is threaded. */
++	{
++	#define DUP_PASS1_BATCH 65536
++		uint32 nthreads = obj->num_threads ? obj->num_threads : 1;
++		uint32 t, k, cnt;
++		int batch_done = 0;
++		char (*lines)[LINE_BUF_SIZE] = (char (*)[LINE_BUF_SIZE])
++			xmalloc((size_t)DUP_PASS1_BATCH * LINE_BUF_SIZE);
++		uint32 *lrel = (uint32 *)xmalloc(DUP_PASS1_BATCH * sizeof(uint32));
++		int32 *rstat = (int32 *)xmalloc(DUP_PASS1_BATCH * sizeof(int32));
++		int64 *ra = (int64 *)xmalloc(DUP_PASS1_BATCH * sizeof(int64));
++		uint32 *rb = (uint32 *)xmalloc(DUP_PASS1_BATCH * sizeof(uint32));
++		uint8 *rnfr = (uint8 *)xmalloc(DUP_PASS1_BATCH);
++		uint8 *rnfa = (uint8 *)xmalloc(DUP_PASS1_BATCH);
++		uint8 *rfac = (uint8 *)xmalloc((size_t)DUP_PASS1_BATCH *
++						COMPRESSED_P_MAX_SIZE);
++		factor_base_t *tfb;
++		mpz_t *tpv;
++
++		if (nthreads < 1) nthreads = 1;
++		if (nthreads > 64) nthreads = 64;
++
++		/* per-thread factor base: shallow copy of fb but with private
++		   deep-copied polynomials, so the tmp1/2/3 scratch that
++		   nfs_read_relation writes is not shared across threads */
++		tfb = (factor_base_t *)xmalloc(nthreads * sizeof(factor_base_t));
++		tpv = (mpz_t *)xmalloc(nthreads * sizeof(mpz_t));
++		for (t = 0; t < nthreads; t++) {
++			uint32 j;
++			tfb[t] = *fb;
++			mpz_poly_init(&tfb[t].rfb.poly);
++			mpz_poly_init(&tfb[t].afb.poly);
++			tfb[t].rfb.poly.degree = fb->rfb.poly.degree;
++			tfb[t].afb.poly.degree = fb->afb.poly.degree;
++			for (j = 0; j <= MAX_POLY_DEGREE; j++) {
++				mpz_set(tfb[t].rfb.poly.coeff[j],
++						fb->rfb.poly.coeff[j]);
++				mpz_set(tfb[t].afb.poly.coeff[j],
++						fb->afb.poly.coeff[j]);
++			}
++			mpz_init(tpv[t]);
+ 		}
+ 
+-		/* read and verify the relation */
+-
+-		curr_relation++;
+-		if (max_relations && curr_relation >= max_relations)
+-			break;
+-
+-		status = nfs_read_relation(buf, fb, &tmp_rel, 
+-					&array_size, 1, scratch, 1);
+-		if (status != 0) {
+-
+-			/* save the line number of bad relations (hopefully
+-			   there are very few of them) */
++		savefile_read_line(buf, sizeof(buf), savefile);
++		while (!batch_done && !savefile_eof(savefile)) {
+ 
+-			fwrite(&curr_relation, (size_t)1, 
+-					sizeof(uint32), bad_relation_fp);
+-			if (status == -98)
+-				num_composite++;
+-			else
+-			    logprintf(obj, "error %d reading relation %u\n",
+-					status, curr_relation);
+-			savefile_read_line(buf, sizeof(buf), savefile);
+-			continue;
+-		}
++			/* (1) fill a batch of relation lines (sequential read) */
++			cnt = 0;
++			while (cnt < DUP_PASS1_BATCH && !savefile_eof(savefile)) {
++				if (buf[0] != '-' && !isdigit(buf[0])) {
++					savefile_read_line(buf, sizeof(buf),
++							savefile);
++					continue;
++				}
++				curr_relation++;
++				if (max_relations &&
++						curr_relation >= max_relations) {
++					batch_done = 1;
++					break;
++				}
++				memcpy(lines[cnt], buf, LINE_BUF_SIZE);
++				lrel[cnt] = curr_relation;
++				cnt++;
++				savefile_read_line(buf, sizeof(buf), savefile);
++			}
+ 
+-		if (curr_relation > 0 && (curr_relation % 10000000 == 0)) {
+-			printf("read %uM relations\n", curr_relation / 1000000);
+-		} /* there are no more errors -6/-11 to see progress */
+-
+-		/* relation is good; find the value to which it
+-		   hashes. Note that only the bottom 35 bits of 'a'
+-		   and the bottom 29 bits of 'b' figure into the hash,
+-		   so that spurious hash collisions are possible
+-		   (though highly unlikely) */
++			/* (2) parse the batch in parallel (GMP-heavy) */
++			#pragma omp parallel for schedule(dynamic, 256) \
++				num_threads(nthreads)
++			for (k = 0; k < cnt; k++) {
++				int tid = omp_get_thread_num();
++				uint32 asz;
++				relation_t rel;
++				rel.factors = rfac +
++					(size_t)k * COMPRESSED_P_MAX_SIZE;
++				rstat[k] = nfs_read_relation(lines[k], &tfb[tid],
++						&rel, &asz, 1, tpv[tid], 1);
++				if (rstat[k] == 0) {
++					ra[k] = rel.a;
++					rb[k] = rel.b;
++					rnfr[k] = rel.num_factors_r;
++					rnfa[k] = rel.num_factors_a;
++				}
++			}
+ 
+-		num_relations++;
+-		blob[0] = (uint32)tmp_rel.a;
+-		blob[1] = ((tmp_rel.a >> 32) & 0x1f) |
+-			  (tmp_rel.b << 5);
+-
+-		hashval = (HASH1(blob[0]) ^ HASH2(blob[1])) >>
+-			   (32 - log2_hashtable1_size);
+-
+-		/* save the hash bucket if there's a collision. We
+-		   don't need to save any more collisions to this bucket,
+-		   but future duplicates could cause the same bucket to
+-		   be saved more than once. We can cut the number of
+-		   redundant bucket reports in half by resetting the
+-		   bit to zero */
+-
+-		if (hashtable[hashval / 8] & hashmask[hashval % 8]) {
+-			fwrite(&hashval, (size_t)1, 
+-					sizeof(uint32), collision_fp);
+-			num_collisions++;
+-			hashtable[hashval / 8] &= ~hashmask[hashval % 8];
+-		}
+-		else {
+-			hashtable[hashval / 8] |= hashmask[hashval % 8];
+-		}
++			/* (3) merge in original order -> identical to serial */
++			for (k = 0; k < cnt; k++) {
++				uint32 hashval;
++
++				if (rstat[k] != 0) {
++					fwrite(&lrel[k], (size_t)1,
++						sizeof(uint32), bad_relation_fp);
++					if (rstat[k] == -99)
++						num_skipped_b++;
++					else if (rstat[k] == -98)
++						num_composite++;
++					else
++						logprintf(obj, "error %d reading "
++							"relation %u\n",
++							rstat[k], lrel[k]);
++					continue;
++				}
+ 
+-		if (tmp_rel.b == 0) {
+-			/* remember any free relations that are found */
++				if (lrel[k] > 0 && (lrel[k] % 10000000 == 0))
++					printf("read %uM relations\n",
++							lrel[k] / 1000000);
+ 
+-			if (num_free_relations == num_free_relations_alloc) {
+-				num_free_relations_alloc *= 2;
+-				free_relations = (uint32 *)xrealloc(
+-						free_relations,
+-						num_free_relations_alloc *
+-						sizeof(uint32));
+-			}
+-			free_relations[num_free_relations++] =
+-						(uint32)(tmp_rel.a);
+-		}
+-		else {
+-			uint32 num_r = tmp_rel.num_factors_r;
+-			uint32 num_a = tmp_rel.num_factors_a;
++				num_relations++;
++				blob[0] = (uint32)ra[k];
++				blob[1] = ((ra[k] >> 32) & 0x1f) | (rb[k] << 5);
+ 
+-			for (i = array_size = 0; i < num_r + num_a; i++) {
+-				uint64 p = decompress_p(tmp_rel.factors, 
+-							&array_size);
+-
+-				/* add the factors of tmp_rel to the 
+-				   counts of (32-bit) primes */
+-		   
+-				if (p >= ((uint64)1 << 32))
+-					continue;
++				hashval = (HASH1(blob[0]) ^ HASH2(blob[1])) >>
++						(32 - log2_hashtable1_size);
+ 
+-				prime_bins[p / BIN_SIZE]++;
++				if (hashtable[hashval / 8] & hashmask[hashval % 8]) {
++					fwrite(&hashval, (size_t)1,
++						sizeof(uint32), collision_fp);
++					num_collisions++;
++					hashtable[hashval / 8] &=
++						~hashmask[hashval % 8];
++				}
++				else {
++					hashtable[hashval / 8] |=
++						hashmask[hashval % 8];
++				}
+ 
+-				/* schedule the adding of a free relation
+-				   for each algebraic factor */
+-				
+-				if (i >= num_r &&
+-				    p > MAX_PACKED_PRIME &&
+-				    p < FREE_RELATION_LIMIT) {
+-					p = p / 2;
+-					free_relation_bits[p / 8] |= 
+-							hashmask[p % 8];
++				if (rb[k] == 0) {
++					if (num_free_relations ==
++						num_free_relations_alloc) {
++						num_free_relations_alloc *= 2;
++						free_relations = (uint32 *)xrealloc(
++							free_relations,
++							num_free_relations_alloc *
++							sizeof(uint32));
++					}
++					free_relations[num_free_relations++] =
++							(uint32)(ra[k]);
++				}
++				else {
++					uint32 num_r = rnfr[k];
++					uint32 num_a = rnfa[k];
++					uint8 *fptr = rfac +
++						(size_t)k * COMPRESSED_P_MAX_SIZE;
++
++					for (i = array_size = 0;
++							i < num_r + num_a; i++) {
++						uint64 p = decompress_p(fptr,
++								&array_size);
++
++						if (p >= ((uint64)1 << 32))
++							continue;
++
++						prime_bins[p / BIN_SIZE]++;
++
++						if (i >= num_r &&
++						    p > MAX_PACKED_PRIME &&
++						    p < FREE_RELATION_LIMIT) {
++							p = p / 2;
++							free_relation_bits[p / 8] |=
++								hashmask[p % 8];
++						}
++					}
+ 				}
+ 			}
+ 		}
+ 
+-		/* get the next line */
+-
+-		savefile_read_line(buf, sizeof(buf), savefile);
++		for (t = 0; t < nthreads; t++) {
++			mpz_poly_free(&tfb[t].rfb.poly);
++			mpz_poly_free(&tfb[t].afb.poly);
++			mpz_clear(tpv[t]);
++		}
++		free(tfb); free(tpv);
++		free(lines); free(lrel); free(rstat); free(ra); free(rb);
++		free(rnfr); free(rnfa); free(rfac);
++	#undef DUP_PASS1_BATCH
+ 	}
+ 
+ 	mpz_clear(scratch);
+@@ -455,6 +534,9 @@
+ 	fclose(bad_relation_fp);
+ 	fclose(collision_fp);
+ 
++	if (num_skipped_b > 0)
++		logprintf(obj, "skipped %d relations with b > 2^32\n",
++				num_skipped_b);
+ 	if (num_composite > 0)
+ 		logprintf(obj, "skipped %d relations with composite factors\n",
+ 				num_composite);
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/filter/singleton.c vendor/msieve/gnfs/filter/singleton.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/filter/singleton.c	2026-08-25 18:39:57.791220193 +0000
++++ vendor/msieve/gnfs/filter/singleton.c	2026-07-01 21:44:57.000000000 +0000
+@@ -13,6 +13,7 @@
+ --------------------------------------------------------------------*/
+ 
+ #include "filter.h"
++#include <omp.h>
+ 
+ /*--------------------------------------------------------------------*/
+ void nfs_write_lp_file(msieve_obj *obj, factor_base_t *fb,
+@@ -35,14 +36,8 @@
+ 	uint32 curr_relation;
+ 	uint32 num_relations;
+ 	hashtable_t unique_ideals;
+-	uint8 tmp_factors[COMPRESSED_P_MAX_SIZE];
+-	uint32 tmp_factor_size;
+-	relation_t tmp_relation;
+ 	relation_ideal_t packed_ideal;
+ 	uint32 have_skip_list = (pass == 0);
+-	mpz_t scratch;
+-
+-	tmp_relation.factors = tmp_factors;
+ 
+ 	logprintf(obj, "commencing singleton removal, initial pass\n");
+ 
+@@ -64,87 +59,160 @@
+ 	header_words = (sizeof(relation_ideal_t) - 
+ 			sizeof(packed_ideal.ideal_list)) / sizeof(uint32);
+ 
+-	/* for each relation that survived the duplicate removal */
++	/* for each relation that survived the duplicate removal.
++	   The per-relation cost is nfs_read_relation() (GMP norm
++	   eval + factor division) plus find_large_ideals(), both pure
++	   functions of the relation line and the read-only polynomials
++	   -- essentially all of this pass's time. So parse a batch of
++	   surviving relations in PARALLEL (each thread with its own
++	   deep-copied poly scratch), then map ideals to unique integers
++	   and dump to disk SEQUENTIALLY in the original relation order.
++	   The ideal->integer assignment (hashtable_find) is insertion-
++	   order dependent, so keeping the merge in order makes the .lp
++	   file byte-for-byte identical to the serial version; only the
++	   GMP-heavy parse is threaded. */
+ 
+ 	curr_relation = (uint32)(-1);
+ 	next_relation = (uint32)(-1);
+ 	num_relations = 0;
+-	mpz_init(scratch);
+-	fread(&next_relation, (size_t)1, 
+-			sizeof(uint32), relation_fp);
+-	savefile_read_line(buf, sizeof(buf), savefile);
+-
+-	while (!savefile_eof(savefile)) {
+-		
+-		int32 status;
+-
+-		if (buf[0] != '-' && !isdigit(buf[0])) {
+-			savefile_read_line(buf, sizeof(buf), savefile);
+-			continue;
+-		}
+ 
+-		curr_relation++;
+-		if (max_relations && curr_relation >= max_relations)
+-			break;
+-
+-		if (have_skip_list) {
+-			if (curr_relation == next_relation) {
+-				fread(&next_relation, sizeof(uint32), 
+-						(size_t)1, relation_fp);
+-				savefile_read_line(buf, sizeof(buf), savefile);
+-				continue;
+-			}
+-		}
+-		else {
+-			if (curr_relation < next_relation) {
+-				savefile_read_line(buf, sizeof(buf), savefile);
+-				continue;
++	{
++	#define LP_PASS_BATCH 65536
++		uint32 nthreads = obj->num_threads ? obj->num_threads : 1;
++		uint32 t, k, cnt;
++		int batch_done = 0;
++		char (*lines)[LINE_BUF_SIZE] = (char (*)[LINE_BUF_SIZE])
++			xmalloc((size_t)LP_PASS_BATCH * LINE_BUF_SIZE);
++		uint32 *lrel = (uint32 *)xmalloc(LP_PASS_BATCH * sizeof(uint32));
++		int32 *rstat = (int32 *)xmalloc(LP_PASS_BATCH * sizeof(int32));
++		relation_lp_t *rlp = (relation_lp_t *)xmalloc(
++				(size_t)LP_PASS_BATCH * sizeof(relation_lp_t));
++		factor_base_t *tfb;
++		mpz_t *tpv;
++
++		if (nthreads < 1) nthreads = 1;
++		if (nthreads > 64) nthreads = 64;
++
++		/* per-thread factor base: shallow copy of fb but with private
++		   deep-copied polynomials, so the tmp1/2/3 scratch that
++		   nfs_read_relation writes is not shared across threads */
++		tfb = (factor_base_t *)xmalloc(nthreads * sizeof(factor_base_t));
++		tpv = (mpz_t *)xmalloc(nthreads * sizeof(mpz_t));
++		for (t = 0; t < nthreads; t++) {
++			uint32 j;
++			tfb[t] = *fb;
++			mpz_poly_init(&tfb[t].rfb.poly);
++			mpz_poly_init(&tfb[t].afb.poly);
++			tfb[t].rfb.poly.degree = fb->rfb.poly.degree;
++			tfb[t].afb.poly.degree = fb->afb.poly.degree;
++			for (j = 0; j <= MAX_POLY_DEGREE; j++) {
++				mpz_set(tfb[t].rfb.poly.coeff[j],
++						fb->rfb.poly.coeff[j]);
++				mpz_set(tfb[t].afb.poly.coeff[j],
++						fb->afb.poly.coeff[j]);
+ 			}
+-			fread(&next_relation, sizeof(uint32), 
+-					(size_t)1, relation_fp);
++			mpz_init(tpv[t]);
+ 		}
+ 
+-		/* read it in */
+-
+-		status = nfs_read_relation(buf, fb, &tmp_relation, 
+-						&tmp_factor_size, 1,
+-						scratch, 0);
++		fread(&next_relation, (size_t)1,
++				sizeof(uint32), relation_fp);
++		savefile_read_line(buf, sizeof(buf), savefile);
+ 
+-		if (status == 0) {
+-			relation_lp_t tmp_ideal;
+-			num_relations++;
++		while (!batch_done && !savefile_eof(savefile)) {
+ 
+-			/* get the large ideals */
++			/* (1) fill a batch of surviving relation lines
++			   (sequential read + skip-list logic, identical
++			   to the serial control flow) */
++			cnt = 0;
++			while (cnt < LP_PASS_BATCH && !savefile_eof(savefile)) {
++				if (buf[0] != '-' && !isdigit(buf[0])) {
++					savefile_read_line(buf, sizeof(buf),
++							savefile);
++					continue;
++				}
++				curr_relation++;
++				if (max_relations &&
++						curr_relation >= max_relations) {
++					batch_done = 1;
++					break;
++				}
++				if (have_skip_list) {
++					if (curr_relation == next_relation) {
++						fread(&next_relation,
++							sizeof(uint32),
++							(size_t)1, relation_fp);
++						savefile_read_line(buf,
++							sizeof(buf), savefile);
++						continue;
++					}
++				}
++				else {
++					if (curr_relation < next_relation) {
++						savefile_read_line(buf,
++							sizeof(buf), savefile);
++						continue;
++					}
++					fread(&next_relation, sizeof(uint32),
++							(size_t)1, relation_fp);
++				}
++				memcpy(lines[cnt], buf, LINE_BUF_SIZE);
++				lrel[cnt] = curr_relation;
++				cnt++;
++				savefile_read_line(buf, sizeof(buf), savefile);
++			}
+ 
+-			find_large_ideals(&tmp_relation, &tmp_ideal, 
++			/* (2) parse + find large ideals in parallel */
++			#pragma omp parallel for schedule(dynamic, 256) \
++				num_threads(nthreads)
++			for (k = 0; k < cnt; k++) {
++				int tid = omp_get_thread_num();
++				uint8 tf[COMPRESSED_P_MAX_SIZE];
++				uint32 asz;
++				relation_t rel;
++				rel.factors = tf;
++				rstat[k] = nfs_read_relation(lines[k],
++						&tfb[tid], &rel, &asz, 1,
++						tpv[tid], 0);
++				if (rstat[k] == 0)
++					find_large_ideals(&rel, &rlp[k],
+ 						filter->filtmin_r,
+ 						filter->filtmin_a);
++			}
+ 
+-			packed_ideal.rel_index = curr_relation;
+-			packed_ideal.gf2_factors = tmp_ideal.gf2_factors;
+-			packed_ideal.ideal_count = tmp_ideal.ideal_count;
+-
+-			/* map each ideal to a unique integer */
+-
+-			for (i = 0; i < tmp_ideal.ideal_count; i++) {
+-				ideal_t *ideal = tmp_ideal.ideal_list + i;
+-
+-				hashtable_find(&unique_ideals, ideal,
++			/* (3) map ideals to integers + dump, in original
++			   order -> byte-identical to serial */
++			for (k = 0; k < cnt; k++) {
++				if (rstat[k] != 0)
++					continue;
++
++				num_relations++;
++				packed_ideal.rel_index = lrel[k];
++				packed_ideal.gf2_factors = rlp[k].gf2_factors;
++				packed_ideal.ideal_count = rlp[k].ideal_count;
++
++				for (i = 0; i < rlp[k].ideal_count; i++) {
++					hashtable_find(&unique_ideals,
++						rlp[k].ideal_list + i,
+ 						packed_ideal.ideal_list + i,
+ 						NULL);
+-			}
++				}
+ 
+-			/* dump the relation to disk */
+-
+-			fwrite(&packed_ideal, sizeof(uint32),
+-				header_words + tmp_ideal.ideal_count, 
+-				final_fp);
++				fwrite(&packed_ideal, sizeof(uint32),
++					header_words + rlp[k].ideal_count,
++					final_fp);
++			}
+ 		}
+ 
+-		savefile_read_line(buf, sizeof(buf), savefile);
++		for (t = 0; t < nthreads; t++) {
++			mpz_poly_free(&tfb[t].rfb.poly);
++			mpz_poly_free(&tfb[t].afb.poly);
++			mpz_clear(tpv[t]);
++		}
++		free(tfb); free(tpv);
++		free(lines); free(lrel); free(rstat); free(rlp);
++	#undef LP_PASS_BATCH
+ 	}
+ 
+-	mpz_clear(scratch);
+ 	filter->num_relations = num_relations;
+ 	filter->num_ideals = hashtable_get_num(&unique_ideals);
+ 	filter->relation_array = NULL;
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/gf2.c vendor/msieve/gnfs/gf2.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/gf2.c	2026-08-25 18:39:57.791220193 +0000
++++ vendor/msieve/gnfs/gf2.c	2026-08-17 09:39:18.000000000 +0000
+@@ -13,6 +13,7 @@
+ --------------------------------------------------------------------*/
+ 
+ #include <common.h>
++#include <omp.h>
+ #include "gnfs.h"
+ 
+ /* the number of quadratic characters for each
+@@ -31,7 +32,9 @@
+    The size of the QCB is limited to allow caching
+    the quadratic characters */
+ 
+-#define QCB_SIZE 20
++#ifndef QCB_SIZE
++#define QCB_SIZE 32
++#endif
+ 
+ #if QCB_SIZE > 32
+ #error "QCB size must be 32 or less"
+@@ -248,12 +251,31 @@
+ 	logprintf(obj, "using %u quadratic characters above %u\n",
+ 				qcb_size, min_qcb_ideal + 1);
+ 
+-	/* cache each relation's quadratic characters for later use */
++	/* cache each relation's quadratic characters for later use.
+ 
++	   PARALLEL (2026-08-17). Measured 71s of the 229s -nc2 on key08
++	   (msieve.log.nc2: "using 32 quadratic characters" 03:03:27 ->
++	   "building initial matrix" 03:04:38) -- 16,298,913 relations x 32
++	   Legendre symbols, all single-threaded, and the second-largest item
++	   in the largest CPU-exposed stage of the pipeline (Worth-Try.md §2).
++
++	   This is the cleanest parallel loop in the file: iteration i touches
++	   ONLY rlist[i] (QCB_VALS is rel->rel_index) and reads the shared qcb[]
++	   read-only, so there is no ordering to preserve and the result is
++	   byte-identical by construction -- verified anyway as an md5 of
++	   m.dat.mat, which is downstream of every QCB_VALS bit.
++
++	   The zero-character warning below is left inside the loop: it is a
++	   printf on a path that must never be taken, and a race on a message
++	   that signals a broken QCB is not worth serialising 71s for. */
++
++	#pragma omp parallel for schedule(static) num_threads( \
++			obj->num_threads ? MIN(obj->num_threads, 64u) : 1) \
++		private(j)
+ 	for (i = 0; i < num_relations; i++) {
+ 		relation_t *rel = rlist + i;
+ 		int64 a = rel->a;
+-		uint64 b = rel->b;
++		uint32 b = rel->b;
+ 
+ 		QCB_VALS(rel) = 0;
+ 		for (j = 0; j < qcb_size; j++) {
+@@ -266,7 +288,7 @@
+ 				res += (int64)p;
+ 
+ 			symbol = mp_legendre_1(mp_modsub_1((uint32)res,
+-					mp_modmul_1((uint32)(b % p), r, p), p), p);
++					mp_modmul_1(b, r, p), p), p);
+ 
+ 			/* symbol must be 1 or -1; if it's 0,
+ 			   there's something wrong with the choice
+@@ -383,7 +405,6 @@
+ 	uint32 i, j, k;
+ 	hashtable_t unique_ideals;
+ 	uint32 max_small_ideal;
+-	uint32 dense_rows[MAX_DENSE_ROW_WORDS];
+ 	uint32 dense_row_words;
+ 	size_t mem_use;
+ 
+@@ -405,65 +426,197 @@
+ 
+ 	fseek(matrix_fp, 3 * sizeof(uint32), SEEK_SET);
+ 
+-	/* for each cycle */
++	/* ---- PARALLEL COLUMN CONSTRUCTION (2026-08-17) ----------------------------
++	   This loop was the largest single-threaded item inside -nc2, and -nc2 is in
++	   turn the largest CPU-exposed stage of the whole pipeline: 227s of a 14,112s
++	   run, MEASURED FLAT from 24 CPUs down to 12 (Worth-Try.md §2) because msieve
++	   creates exactly one thread here regardless of -t. Confirmed mechanically:
++	   /proc/<pid>/stat reports num_threads=1 for `msieve_la -nc2 -t 24`.
++	   That matters far beyond this box -- 94.3% of the run is GPU-bound and
++	   therefore host-independent, so a slower-single-core host is charged its
++	   penalty almost entirely on stages like this one.
++
++	   perf (499 Hz, whole phase) attributes the serial loop as:
++	       find_large_ideals 34.4% | hashtable_find 30.6%
++	       build_matrix_core 18.1% | compare_ideals   3.8%
++	   Everything except hashtable_find is PURE PER COLUMN: combine_relations only
++	   reads rlist and writes caller-provided buffers, find_large_ideals and
++	   compare_ideals hold no static state (verified: relation.c has no statics),
++	   and the dense-ideal bsearch is read-only against small_ideals. The only
++	   shared mutable state is the unique_ideals hashtable and matrix_fp, and BOTH
++	   ARE ORDER-SENSITIVE -- the hashtable hands out sequential row indices, so
++	   the call order defines the row numbering.
++
++	   So the chunk is computed in parallel and consumed SERIALLY IN CYCLE ORDER.
++	   hashtable_find sees exactly the same ideals in exactly the same sequence and
++	   fwrite emits exactly the same bytes, so m.dat.mat is BYTE-IDENTICAL to the
++	   serial build. That is the gate this change is verified against -- an md5 of
++	   m.dat.mat, not an argument that the matrices "should be equivalent".
++
++	   This is the same shape -nc1 already uses (gnfs/filter/singleton.c: parallel
++	   find_large_ideals, then "map ideals to integers + dump, in original order ->
++	   byte-identical to serial"), applied to the stage that was left behind.
++
++	   Threads come from obj->num_threads (i.e. msieve's own -t), so a 1-CPU host
++	   or -t 1 walks the identical code path with one thread and one arena. */
++
++	{
++	uint32 nthreads = obj->num_threads ? obj->num_threads : 1;
++	uint32 chunk_start, t, nt_used = 1;
++	uint32 *nsp, *dall;
++	ideal_t **scratch_merged, **scratch_sparse;
++	ideal_t **arena; size_t *arena_used, *arena_alloc;
++
++	if (nthreads < 1) nthreads = 1;
++	if (nthreads > 64) nthreads = 64;
++
++	/* BMC_CHUNK bounds the peak extra memory, which is dominated by the
++	   arenas: ~92 sparse ideals per column on c151 x 12 bytes x 65536 is
++	   ~72 MB across all threads, against a measured 34.4 GB peak on an 85 GB
++	   budget. The per-column scratch is heap, not stack, so the two 196 KB
++	   MAX_COL_IDEALS arrays cannot interact with libgomp's worker stack size. */
++#define BMC_CHUNK 65536
++	nsp  = (uint32 *)xmalloc(BMC_CHUNK * sizeof(uint32));
++	dall = (uint32 *)xmalloc((size_t)BMC_CHUNK * dense_row_words *
++					sizeof(uint32));
++	scratch_merged = (ideal_t **)xmalloc(nthreads * sizeof(ideal_t *));
++	scratch_sparse = (ideal_t **)xmalloc(nthreads * sizeof(ideal_t *));
++	arena       = (ideal_t **)xmalloc(nthreads * sizeof(ideal_t *));
++	arena_used  = (size_t *)xmalloc(nthreads * sizeof(size_t));
++	arena_alloc = (size_t *)xmalloc(nthreads * sizeof(size_t));
++	for (t = 0; t < nthreads; t++) {
++		scratch_merged[t] = (ideal_t *)xmalloc(MAX_COL_IDEALS *
++							sizeof(ideal_t));
++		scratch_sparse[t] = (ideal_t *)xmalloc(MAX_COL_IDEALS *
++							sizeof(ideal_t));
++		arena_alloc[t] = 1 << 20;
++		arena[t] = (ideal_t *)xmalloc(arena_alloc[t] * sizeof(ideal_t));
++		arena_used[t] = 0;
++	}
++
++	for (chunk_start = 0; chunk_start < num_cycles;
++					chunk_start += BMC_CHUNK) {
++		uint32 clen = MIN((uint32)BMC_CHUNK, num_cycles - chunk_start);
++
++		#pragma omp parallel num_threads(nthreads)
++		{
++			uint32 tid = (uint32)omp_get_thread_num();
++			uint32 nt = (uint32)omp_get_num_threads();
++			ideal_t *merged_ideals = scratch_merged[tid];
++			ideal_t *sparse = scratch_sparse[tid];
++			/* contiguous, increasing ranges -- so walking threads
++			   in order below walks CYCLES in order */
++			uint32 lo = (uint32)(((uint64)clen * tid) / nt);
++			uint32 hi = (uint32)(((uint64)clen * (tid + 1)) / nt);
++			uint32 c, jj, ns;
++
++			#pragma omp single
++			nt_used = nt;
++
++			arena_used[tid] = 0;
++			for (c = lo; c < hi; c++) {
++				uint32 *dr = dall + (size_t)c * dense_row_words;
++				uint32 num_merged;
++
++				/* dense rows start off empty */
++				for (jj = 0; jj < dense_row_words; jj++)
++					dr[jj] = 0;
++
++				/* merge the relations and quadratic
++				   characters in the cycle */
++				num_merged = combine_relations(
++						cycle_list + chunk_start + c,
++						rlist, merged_ideals, dr,
++						num_dense_rows, qcb_size);
++
++				/* split the cycle's ideals into the dense
++				   ones (resolved here -- the bsearch is
++				   read-only) and the sparse ones, which must
++				   wait for the shared hashtable below */
++				ns = 0;
++				for (jj = 0; jj < num_merged; jj++) {
++					ideal_t *ideal = merged_ideals + jj;
++					uint64 p = (uint64)ideal->p_hi << 32 |
++							ideal->p_lo;
++
++					if (max_small_ideal > 0 &&
++					    (p == IDEAL_MINUS_ONE ||
++					     p <= max_small_ideal) ) {
++						ideal_t *loc = (ideal_t *)
++							bsearch(ideal,
++							small_ideals,
++							(size_t)num_small_ideals,
++							sizeof(ideal_t),
++							compare_ideals);
++						uint32 idx;
++						if (loc == NULL) {
++							printf("error: unexpected "
++							  "dense ideal found\n");
++							exit(-1);
++						}
++						idx = qcb_size + 1 +
++							(loc - small_ideals);
++						dr[idx / 32] |= 1 << (idx % 32);
++					}
++					else {
++						sparse[ns++] = *ideal;
++					}
++				}
++				nsp[c] = ns;
+ 
+-	for (i = 0; i < num_cycles; i++) {
+-		la_col_t *c = cycle_list + i;
+-		ideal_t merged_ideals[MAX_COL_IDEALS];
+-		uint32 mapped_ideals[MAX_COL_IDEALS];
+-		uint32 num_merged;
+-
+-		/* dense rows start off empty */
+-
+-		for (j = 0; j < dense_row_words; j++)
+-			dense_rows[j] = 0;
+-
+-		/* merge the relations and quadratic characters
+-		   in the cycle */
+-
+-		num_merged = combine_relations(c, rlist, merged_ideals, 
+-						dense_rows, num_dense_rows,
+-						qcb_size);
+-
+-		/* assign a unique number to each ideal in 
+-		   the cycle. This will automatically ignore
+-		   empty rows in the matrix */
+-
+-		for (j = k = 0; j < num_merged; j++) {
+-			ideal_t *ideal = merged_ideals + j;
+-			uint64 p = (uint64)ideal->p_hi << 32 | ideal->p_lo;
+-
+-			if (max_small_ideal > 0 && (p == IDEAL_MINUS_ONE || 
+-					p <= max_small_ideal) ) {
+-				/* dense ideal; store in compressed format */
+-				ideal_t *loc = (ideal_t *)bsearch(ideal, 
+-						small_ideals,
+-						(size_t)num_small_ideals,
+-						sizeof(ideal_t),
+-						compare_ideals);
+-				uint32 idx = qcb_size + 1 +
+-						(loc - small_ideals);
+-				if (loc == NULL) {
+-					printf("error: unexpected dense "
+-						"ideal found\n");
+-					exit(-1);
++				if (arena_used[tid] + ns > arena_alloc[tid]) {
++					arena_alloc[tid] = MAX(2 * arena_alloc[tid],
++						arena_used[tid] + ns + MAX_COL_IDEALS);
++					arena[tid] = (ideal_t *)xrealloc(arena[tid],
++						arena_alloc[tid] * sizeof(ideal_t));
+ 				}
+-				dense_rows[idx / 32] |= 1 << (idx % 32);
+-			}
+-			else {
+-				uint32 idx;
+-				hashtable_find(&unique_ideals, 
+-						ideal, &idx, NULL);
+-				mapped_ideals[k++] = num_dense_rows + idx;
++				memcpy(arena[tid] + arena_used[tid], sparse,
++						ns * sizeof(ideal_t));
++				arena_used[tid] += ns;
+ 			}
+ 		}
+ 
+-		/* save the matrix entries to disk */
++		/* consume the chunk SERIALLY IN CYCLE ORDER: thread ranges are
++		   contiguous and increasing, so this visits cycles
++		   chunk_start+0, +1, ... exactly as the serial loop did */
++		for (t = 0; t < nt_used; t++) {
++			uint32 lo = (uint32)(((uint64)clen * t) / nt_used);
++			uint32 hi = (uint32)(((uint64)clen * (t + 1)) / nt_used);
++			ideal_t *src = arena[t];
++			uint32 c;
++
++			for (c = lo; c < hi; c++) {
++				uint32 mapped_ideals[MAX_COL_IDEALS];
++
++				k = nsp[c];
++				for (j = 0; j < k; j++) {
++					uint32 idx;
++					hashtable_find(&unique_ideals,
++							src + j, &idx, NULL);
++					mapped_ideals[j] = num_dense_rows + idx;
++				}
++				src += k;
++
++				/* save the matrix entries to disk */
+ 
+-		fwrite(&k, sizeof(uint32), (size_t)1, matrix_fp);
+-		fwrite(mapped_ideals, sizeof(uint32), (size_t)k, matrix_fp);
+-		fwrite(dense_rows, sizeof(uint32), 
+-				(size_t)dense_row_words, matrix_fp);
++				fwrite(&k, sizeof(uint32), (size_t)1, matrix_fp);
++				fwrite(mapped_ideals, sizeof(uint32),
++						(size_t)k, matrix_fp);
++				fwrite(dall + (size_t)c * dense_row_words,
++						sizeof(uint32),
++						(size_t)dense_row_words,
++						matrix_fp);
++			}
++		}
++	}
++
++	for (t = 0; t < nthreads; t++) {
++		free(scratch_merged[t]); free(scratch_sparse[t]); free(arena[t]);
++	}
++	free(scratch_merged); free(scratch_sparse);
++	free(arena); free(arena_used); free(arena_alloc);
++	free(nsp); free(dall);
++#undef BMC_CHUNK
+ 	}
+ 
+ 	/* save the matrix dimensions to disk */
+@@ -590,6 +743,7 @@
+ 	uint32 deps_found;
+ 	uint64 *dependencies;
+ 	uint32 skip_matbuild = 0;
++	uint32 cado_filter = 0;
+ 	time_t cpu_time = time(NULL);
+ #ifdef HAVE_MPI
+ 	int32 grid_bools[2] = {0};
+@@ -630,6 +784,10 @@
+ 			logprintf(obj, "skipping matrix build\n");
+ 			skip_matbuild = 1;
+ 		}
++		if (strstr(obj->nfs_args, "cado_filter=1")) {
++			logprintf(obj, "assuming CADO-NFS filtering\n");
++			cado_filter = 1;
++		}
+ 	}
+ 
+ #ifdef HAVE_MPI
+@@ -712,6 +870,9 @@
+ #endif
+ 		uint64 sparse_weight;
+ 
++		if (cado_filter)
++			nfs_convert_cado_cycles(obj);
++
+ 		/* build the initial matrix that is the output from
+ 		   the filtering */
+ 
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/gnfs.c vendor/msieve/gnfs/gnfs.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/gnfs.c	2026-08-25 18:39:57.791220193 +0000
++++ vendor/msieve/gnfs/gnfs.c	2026-07-01 21:44:57.000000000 +0000
+@@ -241,21 +241,20 @@
+ }
+ 
+ /*--------------------------------------------------------------------*/
+-void eval_poly(mpz_t res, int64 a, uint64 b, mpz_poly_t *poly) {
++void eval_poly(mpz_t res, int64 a, uint32 b, mpz_poly_t *poly) {
+ 
+ 	/* Evaluate one polynomial at 'a' and 'b' */
+ 
+ 	uint32 d = poly->degree;
+ 
+ 	int64_2gmp(a, poly->tmp1);
+-	uint64_2gmp(b, poly->tmp2);
+-	mpz_set(poly->tmp3, poly->tmp2);
++	mpz_set_ui(poly->tmp2, b);
+ 	mpz_set(res, poly->coeff[d]);
+ 
+ 	while (--d) {
+ 		mpz_mul(res, res, poly->tmp1);
+ 		mpz_addmul(res, poly->coeff[d], poly->tmp2);
+-		mpz_mul(poly->tmp2, poly->tmp2, poly->tmp3);
++		mpz_mul_ui(poly->tmp2, poly->tmp2, b);
+ 	}
+ 	mpz_mul(res, res, poly->tmp1);
+ 	mpz_addmul(res, poly->coeff[d], poly->tmp2);
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/gnfs.h vendor/msieve/gnfs/gnfs.h
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/gnfs.h	2026-08-25 18:39:57.791220193 +0000
++++ vendor/msieve/gnfs/gnfs.h	2026-07-01 21:44:57.000000000 +0000
+@@ -69,11 +69,11 @@
+ /* evaluate the homogeneous form of poly(x). If poly has
+    degree d, then res = (b ^ d) * poly(a / b) */
+ 
+-void eval_poly(mpz_t res, int64 a, uint64 b, mpz_poly_t *poly);
++void eval_poly(mpz_t res, int64 a, uint32 b, mpz_poly_t *poly);
+ 
+ typedef struct {
+ 	int64 a;
+-	uint64 b;
++	uint32 b;
+ } abpair_t;
+ 
+ /* Configuration for NFS parameters */
+@@ -325,7 +325,7 @@
+ 
+ typedef struct relation_t {
+ 	int64 a;               /* coordinates of relation; free relations */
+-	uint64 b;              /*   have b = 0 */
++	uint32 b;              /*   have b = 0 */
+ 	uint32 rel_index;      /* line of savefile where relation occurs */
+ 	uint8 num_factors_r;   /* number of rational factors */
+ 	uint8 num_factors_a;   /* number of algebraic factors */
+@@ -386,6 +386,8 @@
+ 
+ void nfs_free_relation_list(relation_t *rlist, uint32 num_relations);
+ 
++void nfs_convert_cado_cycles(msieve_obj *obj);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/poly/stage1/stage1_sieve_gpu.c vendor/msieve/gnfs/poly/stage1/stage1_sieve_gpu.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/poly/stage1/stage1_sieve_gpu.c	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/gnfs/poly/stage1/stage1_sieve_gpu.c	2026-08-03 16:31:23.000000000 +0000
+@@ -1097,9 +1097,21 @@
+ 	   with the sort engine, because apparently it
+ 	   changes the GPU cache size on the fly */
+ 
+-	CUDA_TRY(cuCtxCreate(&t->gpu_context, 
++	/* CUDA 13 remapped cuCtxCreate to cuCtxCreate_v4, which takes an extra
++	   CUctxCreateParams* (see cuda.h:90). Passing NULL there requests the
++	   default context parameters, i.e. exactly the v2 behaviour this code
++	   has always relied on. Guard on CUDA_VERSION so the file still builds
++	   against 12.x toolkits. */
++#if CUDA_VERSION >= 13000
++	CUDA_TRY(cuCtxCreate(&t->gpu_context,
++			NULL,
+ 			CU_CTX_BLOCKING_SYNC,
+ 			d->gpu_info->device_handle))
++#else
++	CUDA_TRY(cuCtxCreate(&t->gpu_context,
++			CU_CTX_BLOCKING_SYNC,
++			d->gpu_info->device_handle))
++#endif
+ 
+ 	/* load GPU kernels */
+ 
+@@ -1119,10 +1131,7 @@
+ 			CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm52.ptx"))
+ 	}
+ 	else if (d->gpu_info->compute_version_major == 6) {
+-		if (d->gpu_info->compute_version_minor < 1)
+-			CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm60.ptx"))
+-		else
+-			CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm61.ptx"))
++		CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm61.ptx"))
+ 	}
+ 	else if (d->gpu_info->compute_version_major == 7) {
+ 		if (d->gpu_info->compute_version_minor < 5)
+@@ -1130,13 +1139,14 @@
+ 		else
+ 			CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm75.ptx"))
+ 	}
++	else if (d->gpu_info->compute_version_major >= 10) {
++		/* Blackwell (sm_120 / cc 12.0) and newer: dedicated PTX
++		   built for compute_120 with the CUDA 12.8 toolchain; the
++		   driver JITs it to the running device. */
++		CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm120.ptx"))
++	}
+ 	else if (d->gpu_info->compute_version_major >= 8) {
+-		if (d->gpu_info->compute_version_minor < 6)
+-			CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm80.ptx"))
+-		else if (d->gpu_info->compute_version_minor < 9)
+-			CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm86.ptx"))
+-		else
+-     		CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm89.ptx"))
++		CUDA_TRY(cuModuleLoad(&t->gpu_module, "stage1_core_sm86.ptx"))
+ 	}
+ 	else
+ 	{
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/relation.c vendor/msieve/gnfs/relation.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/relation.c	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/gnfs/relation.c	2026-08-21 18:59:16.000000000 +0000
+@@ -14,6 +14,7 @@
+ 
+ #include <common.h>
+ #include "gnfs.h"
++#include <omp.h>
+ 
+ /*--------------------------------------------------------------------*/
+ static
+@@ -88,7 +89,7 @@
+ 	uint32 i; 
+ 	uint64 p, btmp;
+ 	int64 a, atmp;
+-	uint64 b;
++	uint32 b;
+ 	char *tmp, *next_field;
+ 	mpz_poly_t *rpoly = &fb->rfb.poly;
+ 	mpz_poly_t *apoly = &fb->afb.poly;
+@@ -104,8 +105,11 @@
+ 	if (tmp[0] != ',' || !isdigit(tmp[1]))
+ 		return -1;
+ 
+-	b = strtoull(tmp+1, &next_field, 10);
++	btmp = strtoull(tmp+1, &next_field, 10);
+ 	tmp = next_field;
++	b = (uint32)btmp;
++	if (btmp != (uint64)b)
++		return -99; /* cannot use large b */
+ 
+ 	num_factors_r = 0;
+ 	num_factors_a = 0;
+@@ -154,7 +158,7 @@
+ 	if (atmp < 0)
+ 		atmp += b;
+ 
+-	if (mp_gcd_2((uint64)atmp, b) != 1)
++	if (mp_gcd_1((uint32)atmp, b) != 1)
+ 		return -6;
+ 
+ 	/* handle a rational factor of -1 */
+@@ -276,7 +280,7 @@
+ 	uint32 array_size = 0;
+ 	uint32 num_factors_r;
+ 	int64 a = rel->a;
+-	uint64 b = rel->b;
++	uint32 b = rel->b;
+ 
+ 	out->gf2_factors = 0;
+ 
+@@ -497,6 +501,78 @@
+ 	uint32 count;
+ } relcount_t;
+ 
++/*--------------------------------------------------------------------*/
++/* ---- BLOCK LINE READER (2026-08-21) --------------------------------------
++   savefile_read_line() is one gzgets() per line, and nfs_get_cycle_relations()
++   below calls it once for EVERY line of m.dat -- ~16.3 M times over 2.1 GB on
++   c151 -- to find the ones it actually wants. Worth-Try.md §2a measures the
++   whole read+parse phase at 44 s, the largest serial item left inside -nc2,
++   and -nc2 is the largest CPU-exposed stage of a run that is otherwise 94%
++   GPU-bound. A slower-single-core validator host is charged that 44 s in full.
++
++   This pulls the file in 8 MB gzread() blocks and splits lines in-process.
++   gzread() is used (NOT read()) so a gzipped savefile still works exactly as
++   before -- zlib decompresses transparently either way, which is the whole
++   reason msieve went through gzgets in the first place.
++
++   Semantics deliberately match gzgets(): copy at most max_len-1 bytes, stop
++   after a '\n', NUL-terminate. It returns the number of bytes written, so 0
++   means end of file -- and that return is what replaces the savefile_eof()
++   test in the caller's loop. */
++typedef struct {
++	gzFile *fp;   /* same (sloppy) type savefile_t uses */
++	char *blk;
++	size_t blk_len;
++	size_t blk_off;
++	int eof;
++} blkreader_t;
++
++#define BLKREAD_SIZE (8u << 20)
++
++static void blk_init(blkreader_t *br, gzFile *fp) {
++	br->fp = fp;
++	br->blk = (char *)xmalloc(BLKREAD_SIZE);
++	br->blk_len = br->blk_off = 0;
++	br->eof = 0;
++}
++
++static void blk_free(blkreader_t *br) {
++	free(br->blk);
++	br->blk = NULL;
++}
++
++static size_t blk_getline(blkreader_t *br, char *buf, size_t max_len) {
++
++	size_t j = 0;
++
++	if (max_len == 0)
++		return 0;
++
++	while (j + 1 < max_len) {
++		char c;
++		if (br->blk_off == br->blk_len) {
++			int n;
++			if (br->eof)
++				break;
++			n = gzread((gzFile)br->fp, br->blk,
++					(unsigned)BLKREAD_SIZE);
++			if (n <= 0) {
++				br->eof = 1;
++				break;
++			}
++			br->blk_len = (size_t)n;
++			br->blk_off = 0;
++		}
++		c = br->blk[br->blk_off++];
++		buf[j++] = c;
++		if (c == '\n')
++			break;
++	}
++	buf[j] = 0;
++	return j;
++}
++
++/*--------------------------------------------------------------------*/
+ static void nfs_get_cycle_relations(msieve_obj *obj, 
+ 				factor_base_t *fb, uint32 num_cycles, 
+ 				la_col_t *cycle_list, 
+@@ -514,13 +590,6 @@
+ 	uint32 *relidx_list;
+ 	relcount_t *entry;
+ 
+-	uint8 tmp_factors[COMPRESSED_P_MAX_SIZE];
+-	uint32 factor_size;
+-	relation_t tmp_relation;
+-	mpz_t scratch;
+-
+-	tmp_relation.factors = tmp_factors;
+-
+ 	hashtable_init(&unique_relidx, 
+ 			(uint32)WORDS_IN(relcount_t), 
+ 			(uint32)1);
+@@ -577,54 +646,173 @@
+ 
+ 	rlist = (relation_t *)xmalloc(num_unique_relidx * sizeof(relation_t));
+ 
++	/* ---- PARALLEL RELATION PARSE (2026-08-21) -------------------------------
++	   The loop this replaces did two things per line, both serially: pull the
++	   line (one gzgets, now blk_getline above), and -- for the ~16.3 M lines
++	   the cycles actually need -- run nfs_read_relation on it. The parse is by
++	   far the larger half and it is PURE per line: nfs_read_relation reads the
++	   factor base read-only and writes only into caller-provided buffers, with
++	   its mpz_t scratch passed in. relation.c holds no statics (the same
++	   property build_matrix_core relies on in gf2.c).
++
++	   So the reader stays serial -- it must, the line INDEX i defines which
++	   relations are wanted -- and only the parse fans out. Lines are collected
++	   into a fixed-stride chunk buffer and parsed by OpenMP once the chunk is
++	   full. Slot k of the chunk always lands in rlist[jbase + k], so rlist ends
++	   up in EXACTLY the order the serial loop produced it, independent of the
++	   thread count. That is what makes the result invariant, and it is checked
++	   the same way -nc2's other parallel stage is: an md5 of m.dat.mat.
++
++	   Chunk memory is GCR_CHUNK x LINE_BUF_SIZE = 19.6 MB, sized off
++	   LINE_BUF_SIZE so a line can never overflow its slot; against a measured
++	   34.4 GB peak on an 85 GB budget that is noise.
++
++	   Threads come from obj->num_threads (msieve's own -t), so -t 1 walks this
++	   code with one thread and one chunk, and a 1-CPU host is unaffected. */
++	{
++	uint32 nthreads = obj->num_threads ? obj->num_threads : 1;
++	uint32 nbuf = 0, t;
++	int32 bad_line = -1;
++	blkreader_t br;
++	char *chunk;
++	uint32 *cidx;
++	uint8 **tfactors;
++	mpz_t *tscratch;
++	factor_base_t *tfb;
++
++	if (nthreads > 64)
++		nthreads = 64;
++
++#define GCR_CHUNK 65536
++
++	chunk = (char *)xmalloc((size_t)GCR_CHUNK * LINE_BUF_SIZE);
++	cidx = (uint32 *)xmalloc(GCR_CHUNK * sizeof(uint32));
++	tfactors = (uint8 **)xmalloc(nthreads * sizeof(uint8 *));
++	tscratch = (mpz_t *)xmalloc(nthreads * sizeof(mpz_t));
++	/* ---- PER-THREAD FACTOR BASE ---------------------------------------
++	   nfs_read_relation() is NOT reentrant against a shared factor_base_t.
++	   It reads the coefficients, which is fine, but it also uses
++	   rpoly->tmp1/tmp2/tmp3 and apoly->tmp1/tmp2/tmp3 -- the "scratch
++	   quantities for evaluating the homogeneous form of poly" declared in
++	   mpz_poly_t -- as WORKING mpz_t's, for eval_poly() and for every
++	   divide_factor_out() call. Two threads sharing those scratch values
++	   realloc the same GMP limb array concurrently, which corrupts the heap:
++	   measured as `realloc(): invalid next size` a few seconds into the
++	   parse, on the very first attempt at this change.
++
++	   The fix is a shallow struct copy per thread plus private scratch. The
++	   copy shares coeff[] with the caller's factor base, which is correct
++	   precisely because those are read-only on this path -- only tmp1/2/3
++	   are written. Nothing else in factor_base_t is touched by
++	   nfs_read_relation: it takes &fb->rfb.poly and &fb->afb.poly and
++	   nothing more. Only the mpz_t's initialised here are cleared below, so
++	   the caller's factor base is never freed through a copy. */
++	tfb = (factor_base_t *)xmalloc(nthreads * sizeof(factor_base_t));
++	for (t = 0; t < nthreads; t++) {
++		tfactors[t] = (uint8 *)xmalloc(COMPRESSED_P_MAX_SIZE *
++						sizeof(uint8));
++		mpz_init(tscratch[t]);
++		tfb[t] = *fb;
++		mpz_init(tfb[t].rfb.poly.tmp1);
++		mpz_init(tfb[t].rfb.poly.tmp2);
++		mpz_init(tfb[t].rfb.poly.tmp3);
++		mpz_init(tfb[t].afb.poly.tmp1);
++		mpz_init(tfb[t].afb.poly.tmp2);
++		mpz_init(tfb[t].afb.poly.tmp3);
++	}
++
++/* parse the nbuf buffered lines into rlist[j ... j+nbuf-1] and advance j */
++#define GCR_FLUSH()							\
++	do {								\
++		int32 _k;						\
++		_Pragma("omp parallel for schedule(static) num_threads(nthreads)") \
++		for (_k = 0; _k < (int32)nbuf; _k++) {			\
++			uint32 _tid = (uint32)omp_get_thread_num();	\
++			relation_t _tmp;				\
++			uint32 _fsize;					\
++			relation_t *_r = rlist + j + _k;		\
++			_tmp.factors = tfactors[_tid];			\
++			if (nfs_read_relation(chunk + (size_t)_k *	\
++					LINE_BUF_SIZE, tfb + _tid, &_tmp,\
++						&_fsize, compress,	\
++						tscratch[_tid], 0)) {	\
++				/* the filtering stage should already have	\
++				   dropped an unreadable relation */	\
++				_Pragma("omp critical (gcr_bad)")	\
++				if (bad_line < 0)			\
++					bad_line = (int32)cidx[_k];	\
++			}						\
++			else {						\
++				*_r = _tmp;				\
++				_r->rel_index = cidx[_k];		\
++				_r->factors = (uint8 *)xmalloc(_fsize *	\
++							sizeof(uint8));	\
++				memcpy(_r->factors, _tmp.factors,	\
++						_fsize * sizeof(uint8)); \
++			}						\
++		}							\
++		if (bad_line >= 0) {					\
++			logprintf(obj, "error: relation %u corrupt\n",	\
++					(uint32)bad_line);		\
++			exit(-1);					\
++		}							\
++		j += nbuf;						\
++		nbuf = 0;						\
++	} while (0)
++
+ 	i = (uint32)(-1);
+ 	j = 0;
+-	savefile_read_line(buf, sizeof(buf), savefile);
+-	mpz_init(scratch);
+-	while (!savefile_eof(savefile) && j < num_unique_relidx) {
+-		
+-		int32 status;
++	blk_init(&br, savefile->fp);
++	blk_getline(&br, buf, sizeof(buf));
++	while (buf[0] != 0 && j + nbuf < num_unique_relidx) {
+ 
+ 		if (buf[0] != '-' && !isdigit(buf[0])) {
+ 
+ 			/* no relation at this line */
+ 
+-			savefile_read_line(buf, sizeof(buf), savefile);
++			blk_getline(&br, buf, sizeof(buf));
+ 			continue;
+ 		}
+-		if (++i < relidx_list[j]) {
++		if (++i < relidx_list[j + nbuf]) {
+ 
+ 			/* relation not needed */
+ 
+-			savefile_read_line(buf, sizeof(buf), savefile);
++			blk_getline(&br, buf, sizeof(buf));
+ 			continue;
+ 		}
+ 
+-		status = nfs_read_relation(buf, fb, &tmp_relation, 
+-						&factor_size, compress,
+-						scratch, 0);
+-		if (status) {
+-			/* at this point, if the relation couldn't be
+-			   read then the filtering stage should have
+-			   found that out and skipped it */
+-
+-			logprintf(obj, "error: relation %u corrupt\n", i);
+-			exit(-1);
+-		}
+-		else {
+-			/* save the relation */
+-
+-			relation_t *r = rlist + j++;
+-
+-			*r = tmp_relation;
+-			r->rel_index = i;
+-			r->factors = (uint8 *)xmalloc(factor_size *
+-							sizeof(uint8));
+-			memcpy(r->factors, tmp_relation.factors,
+-					factor_size * sizeof(uint8));
+-		}
++		/* wanted: stash the raw line and parse it with the chunk */
+ 
+-		savefile_read_line(buf, sizeof(buf), savefile);
++		memcpy(chunk + (size_t)nbuf * LINE_BUF_SIZE, buf,
++				LINE_BUF_SIZE);
++		cidx[nbuf] = i;
++		if (++nbuf == GCR_CHUNK)
++			GCR_FLUSH();
++
++		blk_getline(&br, buf, sizeof(buf));
++	}
++	if (nbuf > 0)
++		GCR_FLUSH();
++
++#undef GCR_FLUSH
++#undef GCR_CHUNK
++
++	blk_free(&br);
++	for (t = 0; t < nthreads; t++) {
++		mpz_clear(tfb[t].rfb.poly.tmp1);
++		mpz_clear(tfb[t].rfb.poly.tmp2);
++		mpz_clear(tfb[t].rfb.poly.tmp3);
++		mpz_clear(tfb[t].afb.poly.tmp1);
++		mpz_clear(tfb[t].afb.poly.tmp2);
++		mpz_clear(tfb[t].afb.poly.tmp3);
++		mpz_clear(tscratch[t]);
++		free(tfactors[t]);
++	}
++	free(tfb);
++	free(tscratch);
++	free(tfactors);
++	free(cidx);
++	free(chunk);
+ 	}
+ 
+ 	num_unique_relidx = *num_relations_out = j;
+@@ -632,7 +820,6 @@
+ 	savefile_close(savefile);
+ 	hashtable_free(&unique_relidx);
+ 	*rlist_out = rlist;
+-	mpz_clear(scratch);
+ }
+ 
+ /*--------------------------------------------------------------------*/
+@@ -715,3 +902,110 @@
+ 	free(rlist);
+ }
+ 
++/*--------------------------------------------------------------------*/
++typedef struct {
++	uint32 purge_idx;
++	uint32 rel_idx;
++} relconvert_t;
++
++static int bsearch_relconvert(const void *key, const void *t) {
++	relconvert_t *c = (relconvert_t *)t;
++	uint32 *k = (uint32 *)key;
++
++	if ((*k) < c->purge_idx)
++		return -1;
++	if ((*k) > c->purge_idx)
++		return 1;
++	return 0;
++}
++
++void nfs_convert_cado_cycles(msieve_obj *obj) {
++
++	uint32 i, j;
++
++	char buf[LINE_BUF_SIZE];
++	char purgefile[LINE_BUF_SIZE];
++	savefile_t s;
++	savefile_t *savefile = &s;
++
++	uint32 num_cycles;
++	la_col_t *cycle_list = NULL;
++	uint32 num_unique_relidx;
++	relconvert_t *convert;
++
++	/* read the raw list of relation numbers for each cycle */
++
++	read_cycles(obj, &num_cycles, &cycle_list, 0, NULL);
++
++	/* for CADO filtering results, the cycle file contains
++	   line numbers in a purge file, not the line numbers of
++	   relations like we want. This is arguably better, since
++	   the purge file results have already assigned unique
++	   numbers to ideals so we could use the purge file to
++	   directly build the matrix. Unfortunately, if we did that
++	   then both the linear algebra and the square root would
++	   need modifications to understand the purge file format.
++	   The alternative is to use the purge file lines to convert 
++	   the purge file line numbers to relation numbers */
++
++	sprintf(purgefile, "%s.purged", obj->savefile.name);
++	savefile_init(savefile, purgefile);
++	savefile_open(savefile, SAVEFILE_READ);
++	savefile_read_line(buf, sizeof(buf), savefile);
++
++	num_unique_relidx = strtoul(buf, NULL, 10);
++
++	logprintf(obj, "cycles contain %u unique purge entries\n", 
++				num_unique_relidx);
++
++	convert = (relconvert_t *)xmalloc(num_unique_relidx *
++					sizeof(relconvert_t));
++
++	for (i = 0; i < num_unique_relidx; i++) {
++
++		relconvert_t *curr = convert + i;
++
++		savefile_read_line(buf, sizeof(buf), savefile);
++
++		/* the relation number is the first entry in the
++		   line from the purge file */
++
++		curr->rel_idx = strtoul(buf, NULL, 10);
++		curr->purge_idx = i;
++	}
++
++	savefile_close(savefile);
++	savefile_free(savefile);
++
++	/* walk through the list of cycles and convert
++	   each purge file number to a relation file number */
++
++	for (i = 0; i < num_cycles; i++) {
++		la_col_t *c = cycle_list + i;
++
++		for (j = 0; j < c->cycle.num_relations; j++) {
++
++			relconvert_t *t = (relconvert_t *)bsearch(
++						c->cycle.list + j,
++						convert,
++						(size_t)num_unique_relidx,
++						sizeof(relconvert_t),
++						bsearch_relconvert);
++			if (t == NULL) {
++				/* this cycle is corrupt somehow */
++				logprintf(obj, "error: cannot locate "
++						"relation %u\n", 
++						c->cycle.list[j]);
++				exit(-1);
++			}
++			else {
++				c->cycle.list[j] = t->rel_idx;
++			}
++		}
++	}
++
++	dump_cycles(obj, cycle_list, num_cycles);
++	free_cycle_list(cycle_list, num_cycles);
++	free(convert);
++}
++
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sieve/sieve.h vendor/msieve/gnfs/sieve/sieve.h
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sieve/sieve.h	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/gnfs/sieve/sieve.h	2026-07-01 21:44:57.000000000 +0000
+@@ -28,7 +28,7 @@
+ 
+ /* dump one NFS relation to the savefile */
+ 
+-void print_relation(savefile_t *savefile, int64 a, uint64 b, 
++void print_relation(savefile_t *savefile, int64 a, uint32 b, 
+ 		uint32 *factors_r, uint32 num_factors_r, 
+ 		uint32 large_prime_r[MAX_LARGE_PRIMES],
+ 		uint32 *factors_a, uint32 num_factors_a, 
+@@ -40,7 +40,7 @@
+ 
+ /* find the size of f(a,b) both in bits and in base log_base */
+ 
+-int32 fplog_eval_poly(int64 a, uint64 b, mpz_t scratch,
++int32 fplog_eval_poly(int64 a, uint32 b, mpz_t scratch,
+ 			mpz_poly_t *f, double log_base,
+ 			uint32 *bits);
+ 
+@@ -50,11 +50,11 @@
+    of the dynamic range in one byte of the sieve array */
+ 
+ double get_log_base(mpz_poly_t *poly, 
+-			int64 a0, int64 a1, uint64 b);
++			int64 a0, int64 a1, uint32 b);
+ 
+ uint32 read_last_line(msieve_obj *obj, mpz_t n);
+ 
+-void write_last_line(msieve_obj *obj, mpz_t n, uint64 b);
++void write_last_line(msieve_obj *obj, mpz_t n, uint32 b);
+ 
+ #ifdef __cplusplus
+ }
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sieve/sieve_line.c vendor/msieve/gnfs/sieve/sieve_line.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sieve/sieve_line.c	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/gnfs/sieve/sieve_line.c	2026-07-01 21:44:57.000000000 +0000
+@@ -125,8 +125,8 @@
+ 
+ 	int64 min_a;
+ 	int64 max_a;
+-	uint64 min_b;
+-	uint64 max_b;
++	uint32 min_b;
++	uint32 max_b;
+ 
+ 	uint32 num_buckets;
+ 	sieve_t sieve_rfb;
+@@ -150,18 +150,18 @@
+ static void init_one_sieve(sieve_t *out_fb,
+ 			uint32 num_buckets, 
+ 			int64 min_a, int64 max_a, 
+-			uint64 min_b, uint32 b_offset);
++			uint32 min_b, uint32 b_offset);
+ 
+ static void fill_one_block(sieve_t *sieve_fb, 
+ 			uint32 block, uint32 num_buckets);
+ 
+ static uint32 do_factoring(sieve_job_t *job,
+-			int64 block_start, uint64 b,
++			int64 block_start, uint32 b,
+ 			mpz_t log_scratch);
+ 
+ static uint32 do_resieve(sieve_job_t *job, uint32 low_offset,
+ 			uint32 high_offset, uint32 num_resieve, 
+-			int64 block_start, uint64 b);
++			int64 block_start, uint32 b);
+ 
+ static void do_one_resieve(sieve_t *fb, resieve_t *resieve_array, 
+ 			uint8 *hashtable, uint32 low_offset, 
+@@ -169,11 +169,11 @@
+ 
+ static uint32 do_one_factoring(sieve_job_t *job, 
+ 				resieve_t *sieve_value,
+-				int64 block_start, uint64 b);
++				int64 block_start, uint32 b);
+ 
+ static uint32 do_one_tf(sieve_t *sieve_fb, resieve_t *resieve, 
+ 			uint32 *factors, uint32 *num_factors_out, 
+-			uint32 offset, uint64 b);
++			uint32 offset, uint32 b);
+ 
+ /*------------------------------------------------------------------*/
+ uint32 do_line_sieving(msieve_obj *obj, sieve_param_t *params, mpz_t n,
+@@ -217,13 +217,13 @@
+ 	job.min_a = params->sieve_begin;
+ 	job.max_a = params->sieve_end;
+ 	job.min_b = 1;
+-	job.max_b = (uint64)(-1);     /* default is to sieve forever */
++	job.max_b = 0xffffffff;     /* default is to sieve forever */
+ 
+ 	/* set user-specified limits, if any */
+ 
+ 	if (lower_limit != NULL && upper_limit != NULL) {
+-		job.min_b = strtoull(lower_limit, NULL, 10);
+-		job.max_b = strtoull(upper_limit, NULL, 10);
++		job.min_b = strtoul(lower_limit, NULL, 10);
++		job.max_b = strtoul(upper_limit, NULL, 10);
+ 		if (job.min_b > job.max_b) {
+ 			printf("lower bound on b must be <= upper bound\n");
+ 			return 0;
+@@ -257,8 +257,7 @@
+ 	
+ 	logprintf(obj, "a range: [%" PRId64 ", %" PRId64 "]\n", 
+ 					job.min_a, job.max_a);
+-	logprintf(obj, "b range: [%" PRIu64 ", %" PRIu64 "]\n", 
+-					job.min_b, job.max_b);
++	logprintf(obj, "b range: [%u, %u]\n", job.min_b, job.max_b);
+ 	logprintf(obj, "number of hash buckets: %u\n", job.num_buckets);
+ 	logprintf(obj, "sieve block size: %u\n", BLOCK_SIZE);
+ 	logprintf(obj, "\n");
+@@ -304,7 +303,7 @@
+ 	   so this is easy to implement */
+ 
+ 	obj->flags |= MSIEVE_FLAG_SIEVING_IN_PROGRESS;
+-	for (i = 0; i <= (uint32)(job.max_b - job.min_b); i++) {
++	for (i = 0; i <= job.max_b - job.min_b; i++) {
+ 
+ 		relations_found += do_one_line(&job, i);
+ 
+@@ -312,7 +311,7 @@
+ 
+ 		if ((obj->flags & (MSIEVE_FLAG_USE_LOGFILE |
+ 	    		   	  MSIEVE_FLAG_LOG_TO_STDOUT))) {
+-			fprintf(stderr, "b = %" PRIu64 ", %u complete / "
++			fprintf(stderr, "b = %u, %u complete / "
+ 				"%u batched relations (need %u)\r", 
+ 				job.min_b + i, relations_found, 
+ 				job.relation_batch.num_relations,
+@@ -324,7 +323,7 @@
+ 
+ 		if (relations_found >= max_relations ||
+ 		    (obj->flags & MSIEVE_FLAG_STOP_SIEVING) ||
+-		    i == (uint32)(job.max_b - job.min_b)) {
++		    i == job.max_b - job.min_b) {
+ 
+ 			/* finish up any batch factoring that's left */
+ 
+@@ -337,7 +336,7 @@
+ 				     	MSIEVE_FLAG_LOG_TO_STDOUT))
+ 				fprintf(stderr, "\n");
+ 
+-			logprintf(obj, "completed b = %" PRIu64 ", "
++			logprintf(obj, "completed b = %u, "
+ 				"found %u relations\n", 
+ 				job.min_b + i, relations_found);
+ 			break;
+@@ -566,8 +565,8 @@
+ 	uint32 i;
+ 	int64 min_a = job->min_a;
+ 	int64 max_a = job->max_a;
+-	uint64 min_b = job->min_b;
+-	uint64 b = min_b + b_offset;
++	uint32 min_b = job->min_b;
++	uint32 b = min_b + b_offset;
+ 	int64 block_base = min_a;
+ 	uint32 num_buckets = job->num_buckets;
+ 	mpz_t log_scratch;
+@@ -619,12 +618,12 @@
+ static void init_one_sieve(sieve_t *out_fb,
+ 			uint32 num_buckets, 
+ 			int64 min_a, int64 max_a, 
+-			uint64 min_b, uint32 b_offset) {
++			uint32 min_b, uint32 b_offset) {
+ 
+ 	/* initialize all of the sieve updates */
+ 
+ 	uint32 i;
+-	uint64 b = min_b + b_offset;
++	uint32 b = min_b + b_offset;
+ 	uint32 common;
+ 
+ 	if (b_offset % LOG_UPDATE_RATE == 0) {
+@@ -684,7 +683,7 @@
+ 		   if the entry is a projective root (i.e. p == r) */
+ 
+ 		entry->skip = 0;
+-		br = mp_modmul_1(entry->r, (uint32)(b % p), p);
++		br = mp_modmul_1(entry->r, b, p);
+ 		if (br == 0 && (entry->r == p || b % p == 0)) {
+ 			entry->skip = 1;
+ 			continue;
+@@ -732,7 +731,7 @@
+ 		int64 rem;
+ 
+ 		entry->skip = 0;
+-		br = mp_modmul_1(entry->r, (uint32)(b % p), p);
++		br = mp_modmul_1(entry->r, b, p);
+ 		if (br == 0 && b % entry->orig_p == 0) {
+ 			entry->skip = 1;
+ 			continue;
+@@ -758,10 +757,8 @@
+ 	   their combined log value. This is added to the cutoff
+ 	   for the entire sieve later */
+ 
+-	uint64_2gmp(b, out_fb->tmp2);
+-	mpz_gcd(out_fb->tmp3, out_fb->poly->coeff[out_fb->poly->degree],
+-		out_fb->tmp2);
+-	common = (uint32)mpz_get_ui(out_fb->tmp3);
++	common = mpz_fdiv_ui(out_fb->poly->coeff[out_fb->poly->degree], b);
++	common = mp_gcd_1(common, b);
+ 	out_fb->proj_bias = fplog(common, out_fb->log_base);
+ }
+ 
+@@ -896,7 +893,7 @@
+ 
+ /*------------------------------------------------------------------*/
+ static uint32 do_factoring(sieve_job_t *job, 
+-			int64 block_start, uint64 b,
++			int64 block_start, uint32 b,
+ 			mpz_t log_scratch) {
+ 
+ 	/* scan a sieve block for smooth numbers */
+@@ -1027,7 +1024,7 @@
+ 			if (gcda < 0)
+ 				gcda += b;
+ 
+-			if (mp_gcd_2((uint64)gcda, b) != 1) {
++			if (mp_gcd_1((uint32)gcda, b) != 1) {
+ 				sieve_a[i+j] = RESIEVE_INVALID;
+ 				continue;
+ 			}
+@@ -1078,7 +1075,7 @@
+ /*------------------------------------------------------------------*/
+ static uint32 do_resieve(sieve_job_t *job, uint32 low_offset,
+ 			uint32 high_offset, uint32 num_resieve, 
+-			int64 block_start, uint64 b) {
++			int64 block_start, uint32 b) {
+ 
+ 	/* perform resieving for all the values between 
+ 	   low_offset and high_offset (inclusive) in a 
+@@ -1207,7 +1204,7 @@
+ 
+ /*------------------------------------------------------------------*/
+ static uint32 do_one_factoring(sieve_job_t *job, resieve_t *sieve_value,
+-				int64 block_start, uint64 b) {
++				int64 block_start, uint32 b) {
+ 
+ 	/* Determine the factorization of one sieve value */
+ 
+@@ -1333,7 +1330,7 @@
+ 
+ static uint32 do_one_tf(sieve_t *sieve_fb, resieve_t *resieve,
+ 			uint32 *factors, uint32 *num_factors_out,
+-			uint32 offset, uint64 b) {
++			uint32 offset, uint32 b) {
+ 
+ 	/* Trial factor a sieve value (in sieve_fb->res) using 
+ 	   the primes in one factor base */
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sieve/sieve_util.c vendor/msieve/gnfs/sieve/sieve_util.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sieve/sieve_util.c	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/gnfs/sieve/sieve_util.c	2026-07-01 21:44:57.000000000 +0000
+@@ -15,7 +15,7 @@
+ #include "sieve.h"
+ 
+ /*------------------------------------------------------------------*/
+-void print_relation(savefile_t *savefile, int64 a, uint64 b, 
++void print_relation(savefile_t *savefile, int64 a, uint32 b, 
+ 			uint32 *factors_r, uint32 num_factors_r, 
+ 			uint32 large_prime_r[MAX_LARGE_PRIMES],
+ 			uint32 *factors_a, uint32 num_factors_a, 
+@@ -25,7 +25,7 @@
+ 	char buf[LINE_BUF_SIZE];
+ 	char *tmp = buf;
+ 
+-	tmp += sprintf(buf, "%" PRId64 ",%" PRIu64, a, b);
++	tmp += sprintf(buf, "%" PRId64 ",%u", a, b);
+ 	for (i = 0; i < num_factors_r; i++) {
+ 		if (i == 0)
+ 			tmp += sprintf(tmp, ":%x", factors_r[i]);
+@@ -70,7 +70,7 @@
+ }
+ 
+ /*------------------------------------------------------------------*/
+-int32 fplog_eval_poly(int64 a, uint64 b, mpz_t scratch,
++int32 fplog_eval_poly(int64 a, uint32 b, mpz_t scratch,
+ 			mpz_poly_t *f, double log_base,
+ 			uint32 *bits) { 
+ 
+@@ -89,7 +89,7 @@
+ #define LOG_TARGET 220
+ 
+ double get_log_base(mpz_poly_t *poly, 
+-			int64 a0, int64 a1, uint64 b) { 
++			int64 a0, int64 a1, uint32 b) { 
+ 
+ 	/* Decide on a base for the logs of one polynomial. 
+ 
+@@ -155,7 +155,7 @@
+ }
+ 
+ /*------------------------------------------------------------------*/
+-void write_last_line(msieve_obj *obj, mpz_t n, uint64 b) {
++void write_last_line(msieve_obj *obj, mpz_t n, uint32 b) {
+ 
+ 	char buf[LINE_BUF_SIZE];
+ 	FILE *linefile;
+@@ -168,7 +168,7 @@
+ 	}
+ 
+ 	gmp_fprintf(linefile, "N %Zd\n", n);
+-	fprintf(linefile, "%" PRIu64 "\n", b);
++	fprintf(linefile, "%u\n", b);
+ 	fclose(linefile);
+ }
+ 
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sqrt/sqrt_a.c vendor/msieve/gnfs/sqrt/sqrt_a.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sqrt/sqrt_a.c	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/gnfs/sqrt/sqrt_a.c	2026-07-01 21:44:57.000000000 +0000
+@@ -245,7 +245,7 @@
+ 
+ 	for (i = 0; i < num_relations; i++) {
+ 		int64 a = abpairs[i].a;
+-		uint32 b = q - (uint32)(abpairs[i].b % q);
++		uint32 b = q - (abpairs[i].b % q);
+ 		uint32 ac;
+ 
+ 		a = a % (int64)q;
+@@ -287,7 +287,7 @@
+ 	mpz_set(poly->coeff[0], c);
+ 	int64_2gmp(abpair->a, poly->coeff[1]);
+ 	mpz_mul(poly->coeff[0], poly->coeff[0], poly->coeff[1]);
+-	uint64_2gmp(abpair->b, poly->coeff[1]);
++	mpz_set_ui(poly->coeff[1], (unsigned long)abpair->b);
+ 
+ 	poly->degree = 0;
+ 	if (abpair->b > 0) {
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sqrt/sqrt.c vendor/msieve/gnfs/sqrt/sqrt.c
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/gnfs/sqrt/sqrt.c	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/gnfs/sqrt/sqrt.c	2026-07-01 21:44:57.000000000 +0000
+@@ -423,6 +423,39 @@
+ 		}
+ 		nfs_free_relation_list(rlist, num_relations);
+ 
++		/* CADO sqrt bridge: this dependency has passed every
++		   square-of-congruence check above, so its (a,b) pairs form a
++		   valid algebraic square. Instead of running msieve's serial
++		   algebraic square root, dump the pairs and exit, letting
++		   CADO's OpenMP all-core sqrt take over. Inert unless
++		   DUMP_AB_FILE is set (plain msieve behaviour otherwise).
++		   Format is "<a> <b>" per line, a=int64, b=uint32, matching
++		   what cado_sqrt.sh feeds to CADO's sqrt -prefix/-dep. */
++		{
++			const char *dump_file = getenv("DUMP_AB_FILE");
++
++			if (dump_file != NULL) {
++				FILE *dump_fp = fopen(dump_file, "w");
++
++				if (dump_fp == NULL) {
++					logprintf(obj, "error: reldump can't "
++							"open out file\n");
++					exit(-1);
++				}
++				for (j = 0; j < num_relations; j++) {
++					fprintf(dump_fp, "%lld %u\n",
++						(long long)abpairs[j].a,
++						abpairs[j].b);
++				}
++				fclose(dump_fp);
++				logprintf(obj, "DUMPED %u (a,b) pairs to %s; "
++						"exiting\n", num_relations,
++						dump_file);
++				free(abpairs);
++				exit(0);
++			}
++		}
++
+ 		/* perform the major work: the algebraic square root.
+ 		   Note that to conserve memory, abpairs is freed in
+ 		   the following call */
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/batch_factor.h vendor/msieve/include/batch_factor.h
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/batch_factor.h	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/include/batch_factor.h	2026-07-01 21:44:57.000000000 +0000
+@@ -29,7 +29,7 @@
+ 
+ #define MAX_LARGE_PRIMES 3
+ 
+-typedef void (*print_relation_t)(savefile_t *savefile, int64 a, uint64 b,
++typedef void (*print_relation_t)(savefile_t *savefile, int64 a, uint32 b,
+ 			uint32 *factors_r, uint32 num_factors_r, 
+ 			uint32 lp_r[MAX_LARGE_PRIMES],
+ 			uint32 *factors_a, uint32 num_factors_a, 
+@@ -40,7 +40,7 @@
+ 
+ typedef struct {
+ 	int64 a;
+-	uint64 b;
++	uint32 b;
+ 	uint8 num_factors_r;     /* doesn't include large primes */
+ 	uint8 num_factors_a;     /* doesn't include large primes */
+ 	uint8 lp_r_num_words;     /* one number with this many words */
+@@ -116,7 +116,7 @@
+    just involves modifying the base case of the recursion; maybe 
+    that should be made into a callback */
+ 
+-void relation_batch_add(int64 a, uint64 b, 
++void relation_batch_add(int64 a, uint32 b, 
+ 			uint32 *factors_r, uint32 num_factors_r, 
+ 			mpz_t unfactored_r,
+ 			uint32 *factors_a, uint32 num_factors_a, 
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/common.h vendor/msieve/include/common.h
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/common.h	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/include/common.h	2026-08-05 02:05:49.000000000 +0000
+@@ -276,7 +276,18 @@
+ 
+ /* A column of the matrix */
+ 
+-#define MAX_COL_IDEALS 1000
++/* 1000 -> 16384 (2026-08-04). Stock msieve sizes this for its OWN filtering.
++   CADO-NFS relation-sets carry more ideals per column before XOR cancellation,
++   so gf2.c:325 fires "error: overflow merging ideals" while building the
++   initial matrix -- leaving a TRUNCATED .mat that then dies downstream in
++   gpu_la.py as "zero-size array to reduction operation CUPY_CUB_MAX", which
++   points nowhere near the real cause. Lowering CADO's target_density is NOT a
++   sufficient workaround: 170 AND 100 both overflow at 1000.
++   Cost is stack only -- ideal_t is 12 bytes and gf2.c holds two such arrays
++   (combine_relations' tmp_ideals + its caller's merged_ideals) = ~393 KB,
++   comfortably inside an 8 MB stack. Inert for msieve's own filtering path.
++   See 500bit-solution/cado-filter/cado_filter.sh. */
++#define MAX_COL_IDEALS 16384
+ 
+ typedef struct {
+ 	uint32 *data;		/* The list of occupied rows in this column */
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/dd.h vendor/msieve/include/dd.h
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/dd.h	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/include/dd.h	2026-07-01 21:44:57.000000000 +0000
+@@ -75,7 +75,7 @@
+ #elif defined(GCC_ASM32X) || defined(GCC_ASM64X)
+ 	dd_precision_t prec;
+ 	ASM_G volatile ("fnstcw %0":"=m"(prec));
+-	return ((prec & 0x0300) == 0x0200) ? 1 : 0;
++	return ((prec & ~0x0300) == 0x0200) ? 1 : 0;
+ #else
+ 	return 1;
+ #endif
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/mp.h vendor/msieve/include/mp.h
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/mp.h	2026-08-25 18:39:57.795220213 +0000
++++ vendor/msieve/include/mp.h	2026-07-01 21:44:57.000000000 +0000
+@@ -332,21 +332,6 @@
+ 	return x;
+ }
+ 
+-static INLINE uint64 mp_gcd_2(uint64 x, uint64 y) {
+-
+-	uint64 tmp;
+-
+-	if (y < x) {
+-		tmp = x; x = y; y = tmp;
+-	}
+-
+-	while (y > 0) {
+-		x = x % y;
+-		tmp = x; x = y; y = tmp;
+-	}
+-	return x;
+-}
+-
+ 	/* Print routines: print the input mp_t to a file
+ 	   (if f is not NULL) and also return a pointer to
+ 	   a string representation of the input (requires
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/msieve.h vendor/msieve/include/msieve.h
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/include/msieve.h	2026-08-25 18:39:57.799220232 +0000
++++ vendor/msieve/include/msieve.h	2026-07-01 21:44:57.000000000 +0000
+@@ -101,7 +101,7 @@
+ 	uint32 read_size;
+ 	uint32 eof;
+ #else
+-	gzFile fp;
++	gzFile *fp;
+ 	char isCompressed;
+ 	char is_a_FILE;
+ #endif
+diff -ru '--exclude=.git' '--exclude=*.o' '--exclude=*.no' '--exclude=*.qo' '--exclude=*.a' '--exclude=*.ptx' '--exclude=msieve' '--exclude=build.*' '--exclude=built' /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/Makefile vendor/msieve/Makefile
+--- /tmp/claude-0/-root-work-enigma-work/d98d0a17-708d-457e-92de-5a60e9cdcfd0/scratchpad/ms154/Makefile	2026-08-25 18:39:57.751219999 +0000
++++ vendor/msieve/Makefile	2026-08-03 16:31:23.000000000 +0000
+@@ -17,11 +17,14 @@
+ WIN64 = 0
+ VBITS = 64
+ 
+-# gcc with basic optimization (-march flag could
+-# get overridden by architecture-specific builds)
++# gcc with basic optimization. NOTE: target the validator, not the build
++# host -- do NOT use -march=native (it would bake in whatever CPU happens
++# to build this). x86-64-v3 (AVX2/FMA/BMI2) runs on every modern server
++# CPU and is a strict subset of the AVX-512 the original binaries used, so
++# it is guaranteed to run on the validator's Blackwell server host.
+ CC = gcc
+ WARN_FLAGS = -Wall -W
+-OPT_FLAGS = -O3 -fomit-frame-pointer -march=native \
++OPT_FLAGS = -O3 -fomit-frame-pointer -march=x86-64-v3 -fopenmp \
+ 	    -D_FILE_OFFSET_BITS=64 -DNDEBUG -D_LARGEFILE64_SOURCE -DVBITS=$(VBITS)
+ 
+ # use := instead of = so we only run the following once
+@@ -60,7 +63,7 @@
+ else
+ 	NVCC = "$(shell which nvcc)"
+ 	CUDA_ROOT = $(shell dirname $(NVCC))/../
+-	CUDA_LIBS = -lcuda
++	CUDA_LIBS = -L"$(CUDA_ROOT)/lib64/stubs" -lcuda
+ endif
+ 	CFLAGS += -I"$(CUDA_ROOT)/include" -Icub -Imgpu -DHAVE_CUDA
+ 	LIBS += $(CUDA_LIBS)
+@@ -197,10 +200,7 @@
+ #---------------------------------- GPU file lists -------------------------
+ 
+ GPU_OBJS += \
+-	stage1_core_sm20.ptx \
+-	stage1_core_sm30.ptx \
+-	stage1_core_sm35.ptx \
+-	stage1_core_sm50.ptx \
++	stage1_core_sm120.ptx \
+ 	cub/built
+ 
+ #---------------------------------- NFS file lists -------------------------
+@@ -301,7 +301,7 @@
+ 			libmsieve.a $(LIBS)
+ 
+ clean:
+-#	cd cub && make clean WIN=$(WIN) WIN64=$(WIN64) && cd ..
++	cd cub && make clean WIN=$(WIN) WIN64=$(WIN64) && cd ..
+ 	rm -f msieve msieve.exe libmsieve.a $(COMMON_OBJS) $(QS_OBJS) \
+ 		$(NFS_OBJS) $(NFS_GPU_OBJS) $(NFS_NOGPU_OBJS) *.ptx
+ 
+@@ -334,17 +334,19 @@
+ 
+ # GPU build rules
+ 
+-stage1_core_sm20.ptx: $(NFS_GPU_HDR)
+-	$(NVCC) -arch sm_20 -ptx -o $@ $<
+-
+-stage1_core_sm30.ptx: $(NFS_GPU_HDR)
+-	$(NVCC) -arch sm_30 -ptx -o $@ $<
+-
+-stage1_core_sm35.ptx: $(NFS_GPU_HDR)
+-	$(NVCC) -arch sm_35 -ptx -o $@ $<
+-
+-stage1_core_sm50.ptx: $(NFS_GPU_HDR)
+-	$(NVCC) -arch sm_50 -ptx -o $@ $<
++# Blackwell (RTX PRO 6000, sm_120 / cc 12.0). PTX built with the CUDA 13.0
++# toolchain (.version 9.0) and JIT-compiled to native SASS by the driver at
++# load time.
++#
++# !! Build this with EXACTLY CUDA 13.0 -- not 13.1/13.2. !!
++# The validator hosts run CUDA 13.0 on driver 580.159.03 / 580.173.02. PTX from
++# a newer toolkit raises .version beyond what a 580.x driver's JIT accepts and
++# fails at cuModuleLoad with CUDA_ERROR_UNSUPPORTED_PTX_VERSION (222) -- i.e.
++# polynomial selection dies at startup on every challenge.
++#   PATH=/usr/local/cuda-13.0/bin:$PATH make all CUDA=1
++#   verify:  grep -m1 '^\.version' stage1_core_sm120.ptx   -> .version 9.0
++stage1_core_sm120.ptx: $(NFS_GPU_HDR)
++	$(NVCC) -arch=sm_120 -ptx -o $@ $<
+ 
+ cub/built:
+-	cd cub && make WIN=$(WIN) WIN64=$(WIN64) sm=200,300,350,520 && cd ..
++	cd cub && make WIN=$(WIN) WIN64=$(WIN64) sm=120 && cd ..
+Only in vendor/msieve: README.md
+Only in vendor/msieve: README.NFS.md
+Only in vendor/msieve: README.QS.md

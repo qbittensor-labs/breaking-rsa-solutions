@@ -1,0 +1,22 @@
+GNU C Library (glibc) — bundled compatibility header
+=====================================================
+
+File: gpu_nfs_siever/compat-include/bits/mathcalls.h
+
+This file is a byte-identical copy of the system glibc header
+/usr/include/x86_64-linux-gnu/bits/mathcalls.h with exactly ONE declaration
+(the C23 `rsqrt` MATHCALL) commented out, to work around a header clash between
+glibc >= 2.41 and the CUDA 13.0 toolkit (see gpu_nfs_siever/compat-include/README
+for the full rationale and the one-line regeneration command).
+
+It is part of the GNU C Library and remains licensed under the
+**GNU Lesser General Public License, version 2.1 or later**, © Free Software
+Foundation, Inc. It is NOT relicensed by this repository. The full license text
+and copyright notice are preserved in the file's own header.
+
+Per the repository relicensing policy (docs/RELICENSING.md §3), a modified
+upstream source file is a derivative of that upstream and stays under its
+original license, with the modification noted. The modification is noted above
+and in the compat-include/README.
+
+LGPL-2.1 full text: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html

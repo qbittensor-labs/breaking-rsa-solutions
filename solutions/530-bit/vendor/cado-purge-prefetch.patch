@@ -1,0 +1,16 @@
+--- filter/purge_matrix.hpp.orig	2026-09-28 09:44:02.532289492 +0000
++++ filter/purge_matrix.hpp	2026-09-28 09:49:30.060582189 +0000
+@@ -58,8 +58,12 @@
+     void new_row(size_t i, size_t col0, size_t col1, C const & primes)
+     {
+         size_t active_weight = 0;
+-        for (auto & c: primes)
++        for (auto & c: primes) {
+             active_weight += (c.h >= col0 && c.h < col1);
++            /* rsa530: touch this relation's ~19 random column-weight cache lines up front so their DRAM
++             * misses overlap (the single consumer thread was latency-bound at ~790k relations/s) */
++            if (c.h < column_weights.size()) __builtin_prefetch(&column_weights[c.h], 1, 1);
++        }
+ 
+         auto * p = alloc(active_weight + 1);
+         p[active_weight] = END_OF_ROW;

@@ -1,0 +1,130 @@
+// Copyright (C) 2026 qBitTensor Labs.
+// Original author: Xdev (Enigma / Breaking RSA competition).
+// IP in custom components assigned to qBitTensor Labs under the Enigma rules.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or (at your
+// option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details. You should have received a copy of the license with this program;
+// if not, see <https://www.gnu.org/licenses/>.
+
+// cado2msieve — bridge modern CADO purge output into msieve's cado_filter=1 path.
+//
+// msieve (gnfs/relation.c:738 nfs_convert_cado_cycles) expects:
+//   <prefix>.purged : line 1 = count, then one line per purge entry whose FIRST
+//                     token is a relation number into <prefix>
+//   <prefix>        : msieve-parsable relations, indexed by those numbers
+//
+// Current CADO purged.gz is "# nrows ncolsmax ncols" then "a,b:ideals" with a,b
+// in HEX and no leading relation index -- the interop note is pinned to a 2013
+// revision. Rather than reorder anything, we emit <prefix> in PURGE ORDER and
+// make the .purged mapping the identity, which is self-consistent.
+//
+// usage: cado2msieve <rels_nofree.txt> <purged_plain> <out_prefix>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+typedef struct { int64_t a; uint64_t b; long off; int len; } ent_t;
+
+static ent_t *tab; static size_t tsz, tmask;
+
+static inline size_t hsh(int64_t a, uint64_t b) {
+    uint64_t h = (uint64_t)a * 0x9E3779B97F4A7C15ULL ^ (b + 0x165667B19E3779F9ULL);
+    h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;
+    return (size_t)h & tmask;
+}
+static void put(int64_t a, uint64_t b, long off, int len) {
+    size_t i = hsh(a,b);
+    while (tab[i].len) { if (tab[i].a==a && tab[i].b==b) return; i = (i+1) & tmask; }
+    tab[i].a=a; tab[i].b=b; tab[i].off=off; tab[i].len=len;
+}
+static ent_t *get(int64_t a, uint64_t b) {
+    size_t i = hsh(a,b);
+    while (tab[i].len) { if (tab[i].a==a && tab[i].b==b) return &tab[i]; i = (i+1) & tmask; }
+    return NULL;
+}
+
+int main(int argc, char **argv) {
+    if (argc < 4) { fprintf(stderr,"usage: %s <rels> <purged|-> <out_prefix> [npurged]\n",argv[0]); return 1; }
+
+    tsz = 1; while (tsz < 160000000) tsz <<= 1;   // ~2.4x load headroom for 65.5M
+    tmask = tsz - 1;
+    tab = calloc(tsz, sizeof(ent_t));
+    if (!tab) { fprintf(stderr,"alloc failed\n"); return 1; }
+
+    // pass 1: index the original relations by (a,b)
+    FILE *fr = fopen(argv[1],"r");
+    if (!fr) { perror("rels"); return 1; }
+    char *line = NULL; size_t cap = 0; long off = 0; ssize_t n; long nrel = 0;
+    while ((n = getline(&line,&cap,fr)) > 0) {
+        int64_t a; uint64_t b;
+        if (sscanf(line,"%lld,%llu:",(long long*)&a,(unsigned long long*)&b) == 2)
+            put(a,b,off,(int)n);
+        off += n; nrel++;
+    }
+    fprintf(stderr,"indexed %ld relations\n", nrel);
+
+    // pass 2: walk purged in order, emit relations + identity .purged
+    FILE *fp = fopen(argv[2],"r");
+    if (!fp) { perror("purged"); return 1; }
+    char outrel[4096], outpur[4096];
+    snprintf(outrel,sizeof outrel,"%s",argv[3]);
+    snprintf(outpur,sizeof outpur,"%s.purged",argv[3]);
+    FILE *orl = fopen(outrel,"w"), *opu = fopen(outpur,"w");
+    if (!orl || !opu) { perror("out"); return 1; }
+
+    // Entry count. Counting it here needs a SEEKABLE purged file (count pass +
+    // rewind), which forces the caller to decompress purged.gz to disk first --
+    // ~1.9 GB that must fit the validator's 10 GB /tmp alongside everything else.
+    // When the caller passes the count (purge.log's nrows=) we make a single
+    // sequential pass instead, so purged can be a PIPE and never hits disk.
+    long npur = 0;
+    if (argc >= 5) {
+        npur = strtol(argv[4], NULL, 10);
+    } else {
+        while ((n = getline(&line,&cap,fp)) > 0) if (line[0] != '#') npur++;
+        rewind(fp);
+    }
+    fprintf(opu,"%ld\n", npur);
+    fprintf(stderr,"purge entries: %ld\n", npur);
+
+    char *buf = malloc(1<<20);
+    long emitted = 0, nfree = 0, idx = 0;
+    while ((n = getline(&line,&cap,fp)) > 0) {
+        if (line[0] == '#') continue;
+        int64_t a; uint64_t b;
+        // CADO purged: hex a (may be negative), hex b
+        char *c = strchr(line, ',');
+        if (!c) continue;
+        *c = 0;
+        a = (int64_t)strtoll(line, NULL, 16);
+        b = strtoull(c+1, NULL, 16);
+        ent_t *e = get(a,b);
+        if (!e) {
+            // CADO free relations (b==0) are not in the sieve dump -- they are
+            // generated by freerel. msieve's own format for these is "p,0:" with
+            // the factorisation implied, so emit one and KEEP THE INDEX ALIGNED.
+            if (b == 0) { fprintf(orl, "%lld,0:\n", (long long)a); fprintf(opu,"%ld\n", idx); idx++; emitted++; nfree++; continue; }
+            fprintf(stderr,"FATAL: non-free relation missing: %lld,%llu\n",(long long)a,(unsigned long long)b);
+            return 1;
+        }
+        fseek(fr, e->off, SEEK_SET);
+        size_t got = fread(buf, 1, e->len, fr);
+        fwrite(buf, 1, got, orl);
+        fprintf(opu,"%ld\n", idx);
+        idx++; emitted++;
+    }
+    fclose(orl); fclose(opu); fclose(fp); fclose(fr);
+    // CADO free relations are EXPECTED to be absent from the sieve dump -- they are
+    // generated by freerel and re-emitted above, so they are not an error. A genuinely
+    // missing sieve relation already aborted with rc=1 inside the loop.
+    fprintf(stderr,"emitted %ld relations (%ld CADO free relations re-emitted)\n", emitted, nfree);
+    return 0;
+}
