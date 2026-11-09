@@ -1,0 +1,834 @@
+diff --git a/bench/pipeline.cuh b/bench/pipeline.cuh
+index 9e9d99c..4aa453c 100644
+--- a/bench/pipeline.cuh
++++ b/bench/pipeline.cuh
+@@ -23,6 +23,9 @@
+ #include "runlog.h"
+ #include "watchdog.h"
+ #include <signal.h>
++#include <functional>
++/* rsa530 patch 4: run by pipe_td_perq right before its final sync (host idle, GPU busy): the look-ahead prepare */
++static std::function<void()> g_pipe_td_hook;
+ 
+ /* ---- clean stop -------------------------------------------------------- *
+  *
+@@ -62,6 +65,10 @@ static void pipe_request_stop(void)
+  * only the cap ever reads. Reset at the top of every band. */
+ static int g_pipe_need_limbs = 0;
+ 
++/* rsa530 patch 2: async join-loop writer, defined further down (see "async emit") */
++static void fe_drain(void);
++static void fe_stop(void);
++
+ /* Record a resume point.
+  *
+  * THE PRECONDITION IS THE WHOLE DESIGN: the caller must guarantee that the
+@@ -82,6 +89,7 @@ static int pipe_checkpoint(const poly_t *P, const bench_cfg_t *cfg, ckpt_t *ck,
+     int64_t ro, co = 0;
+     bench_file_id_t cid;
+     if (!fr || !cfg->relations) return 0;
++    fe_drain();   /* rsa530 patch 2: the offsets below must cover every line the join loop emitted */
+     /* fsync before the sidecar, never after: the checkpoint asserts these
+      * bytes are on the platter, and a sidecar naming bytes that are still in
+      * the page cache is worse than no sidecar at all. */
+@@ -155,6 +163,16 @@ static void pipe_try_checkpoint(const poly_t *P, const bench_cfg_t *cfg,
+                 cfg->relations);
+ }
+ 
++/* rsa530 patch 4 (look-ahead prepare): the per-q HOST outputs of pipe_side_prepare_host. Two sets per side, so
++ * q+1's tables are built during q's trial division while q's set may still be uploading. Set 0's pinned
++ * buffers alias pside_t's hs* (allocated in pipe_side_init), set 1 is allocated there too. */
++typedef struct {
++    uint32_t *hsp, *hsrt, *hsg, *hsmag;
++    uint16_t *hslp;
++    uint32_t  nsmall, nblk, nwrp, tconst;
++    norm_t    N;
++} pprep_t;
++
+ typedef struct {
+     uint32_t *primes, *roots;
+     plat_t   *plat;
+@@ -179,6 +197,7 @@ typedef struct {
+      * transform END, kept separate because pipe_side_sieve_issue re-records
+      * ev[1] once per slab and would clobber it. */
+     cudaEvent_t ev[5];
++    pprep_t   prep[2];          /* rsa530 patch 4 */
+ } pside_t;
+ 
+ static void pside_free(pside_t *S)
+@@ -195,6 +214,11 @@ static void pside_free(pside_t *S)
+     if (S->hsg)  cudaFreeHost(S->hsg);
+     if (S->hslp) cudaFreeHost(S->hslp);
+     if (S->hsmag) cudaFreeHost(S->hsmag);
++    if (S->prep[1].hsp)  cudaFreeHost(S->prep[1].hsp);    /* rsa530 patch 4 */
++    if (S->prep[1].hsrt) cudaFreeHost(S->prep[1].hsrt);
++    if (S->prep[1].hsg)  cudaFreeHost(S->prep[1].hsg);
++    if (S->prep[1].hslp) cudaFreeHost(S->prep[1].hslp);
++    if (S->prep[1].hsmag) cudaFreeHost(S->prep[1].hsmag);
+     for (int k = 0; k < 5; k++) if (S->ev[k]) cudaEventDestroy(S->ev[k]);
+     memset(S, 0, sizeof(*S));
+ }
+@@ -360,6 +384,14 @@ static int pipe_side_init(const fb_t *fb, const fb_t *fbs,
+                                    cudaHostAllocDefault));
+         SIDE_INIT_CK(cudaHostAlloc((void **)&S->hsmag, (size_t)fbs->n * 4,
+                                    cudaHostAllocDefault));
++        /* rsa530 patch 4: set 0 aliases the buffers above; set 1 is the look-ahead's */
++        S->prep[0].hsp = S->hsp; S->prep[0].hsrt = S->hsrt; S->prep[0].hsg = S->hsg;
++        S->prep[0].hslp = S->hslp; S->prep[0].hsmag = S->hsmag;
++        SIDE_INIT_CK(cudaHostAlloc((void **)&S->prep[1].hsp, (size_t)fbs->n * 4, cudaHostAllocDefault));
++        SIDE_INIT_CK(cudaHostAlloc((void **)&S->prep[1].hsrt, (size_t)fbs->n * 4, cudaHostAllocDefault));
++        SIDE_INIT_CK(cudaHostAlloc((void **)&S->prep[1].hslp, (size_t)fbs->n * 2, cudaHostAllocDefault));
++        SIDE_INIT_CK(cudaHostAlloc((void **)&S->prep[1].hsg, (size_t)fbs->n * 4, cudaHostAllocDefault));
++        SIDE_INIT_CK(cudaHostAlloc((void **)&S->prep[1].hsmag, (size_t)fbs->n * 4, cudaHostAllocDefault));
+         SIDE_INIT_CK(cudaMalloc(&S->sp,  (size_t)fbs->n * 4));
+         SIDE_INIT_CK(cudaMalloc(&S->srt, (size_t)fbs->n * 4));
+         SIDE_INIT_CK(cudaMalloc(&S->sg,  (size_t)fbs->n * 4));
+@@ -461,35 +493,30 @@ static int g_warned_td_trunc   = 0;
+  * bucketed factor base once.  In SLABBED mode k_transform also seeds the first
+  * slab's continuation walk. */
+ template <bool SLABBED>
+-static int pipe_side_prepare_q(const fb_t *fb, const fb_t *fbs,
+-                               const qlat_t *L, const poly_t *POLY,
+-                               const bench_cfg_t *cfg, int side, double scale,
+-                               int blocks, pside_t *S, double *t_host)
++static int pipe_side_prepare_host(const fb_t *fb, const fb_t *fbs, const qlat_t *L,
++                                  const poly_t *POLY, const bench_cfg_t *cfg, int side,
++                                  double scale, pside_t *S, pprep_t *P, double *t_host)
+ {
++    /* rsa530 patch 4: the HOST half of the per-q prepare -- small-sieve tables, norm setup and the norm-width
++     * check, the survivor threshold -- written into P with NO CUDA call, so the loop can run it for q+1 while
++     * q's kernels are in flight. Returns 0, PIPE_Q_SKIP (norm too wide for this build) or -1. */
++    (void)fb; (void)S;
+     uint32_t *idx = NULL, *tp = NULL, *trt = NULL, *tg = NULL;
+     uint16_t *tlp = NULL;
+-    double h0 = host_ms();
++    const double h0 = host_ms();
+     int rc = -1;
+-    /* PIPE_Q_SKIP is a THIRD outcome, distinct from both success and failure:
+-     * this one special-q cannot be sieved at this build's width, but the band
+-     * can continue past it. See the norm-width check below. */
+-
+-#define PERQ_CK(x) do { if (CUDA_CHECKED(x)) goto done; } while (0)
++    P->nsmall = 0; P->nblk = 0; P->nwrp = 0;
+     if (cfg->small_sieve && fbs && fbs->n) {
+-        uint32_t *hsp = S->hsp, *hsrt = S->hsrt, *hsg = S->hsg;
+-        uint16_t *hslp = S->hslp;
++        uint32_t *hsp = P->hsp, *hsrt = P->hsrt, *hsg = P->hsg;
++        uint16_t *hslp = P->hslp;
+         uint32_t k = 0;
+         for (uint32_t i = 0; i < fbs->n; i++) {
+             uint32_t rt, g, m = pl_transform_enc(fbs->primes[i], fbs->roots[i],
+                                                  L->a0, L->a1, L->b0, L->b1,
+                                                  &rt, &g);
+-            hsp[k] = m;
+-            hsrt[k] = rt;
+-            hsg[k] = g;
+-            hslp[k] = fbs->logp[i];
+-            k++;
++            hsp[k] = m; hsrt[k] = rt; hsg[k] = g; hslp[k] = fbs->logp[i]; k++;
+         }
+-        S->nsmall = k;
++        P->nsmall = k;
+         if (k) {
+             idx = (uint32_t *)malloc((size_t)k * sizeof(*idx));
+             tp  = (uint32_t *)malloc((size_t)k * sizeof(*tp));
+@@ -497,134 +524,46 @@ static int pipe_side_prepare_q(const fb_t *fb, const fb_t *fbs,
+             tg  = (uint32_t *)malloc((size_t)k * sizeof(*tg));
+             tlp = (uint16_t *)malloc((size_t)k * sizeof(*tlp));
+             if (!idx || !tp || !trt || !tg || !tlp) {
+-                fprintf(stderr,
+-                        "pipe_side_prepare_q: out of memory sorting %u small-sieve entries\n",
+-                        k);
++                fprintf(stderr, "pipe_side_prepare_host: out of memory sorting %u small-sieve entries\n", k);
+                 goto done;
+             }
+             for (uint32_t i = 0; i < k; i++) idx[i] = i;
+-            std::stable_sort(idx, idx + k,
+-                             [hsp](uint32_t x, uint32_t y) {
+-                                 return hsp[x] < hsp[y];
+-                             });
++            std::stable_sort(idx, idx + k, [hsp](uint32_t x, uint32_t y) { return hsp[x] < hsp[y]; });
+             for (uint32_t i = 0; i < k; i++) {
+                 const uint32_t z = idx[i];
+-                tp[i] = hsp[z];
+-                trt[i] = hsrt[z];
+-                tg[i] = hsg[z];
+-                tlp[i] = hslp[z];
++                tp[i] = hsp[z]; trt[i] = hsrt[z]; tg[i] = hsg[z]; tlp[i] = hslp[z];
+             }
+             memcpy(hsp, tp, (size_t)k * sizeof(*hsp));
+             memcpy(hsrt, trt, (size_t)k * sizeof(*hsrt));
+             memcpy(hsg, tg, (size_t)k * sizeof(*hsg));
+             memcpy(hslp, tlp, (size_t)k * sizeof(*hslp));
+-            free(idx); idx = NULL;
+-            free(tp); tp = NULL;
+-            free(trt); trt = NULL;
+-            free(tg); tg = NULL;
+-            free(tlp); tlp = NULL;
++            free(idx); idx = NULL; free(tp); tp = NULL; free(trt); trt = NULL; free(tg); tg = NULL; free(tlp); tlp = NULL;
+         }
+-        /* Reciprocals AFTER the sort, same as the standalone path: the sort
+-         * key is the modulus, so building them earlier would only mean
+-         * permuting them too. */
+         for (uint32_t i = 0; i < k; i++)
+-            ss_magic_build(hsp[i], hsg[i] > 1 ? cfg->J / hsg[i] : cfg->J,
+-                           cfg->logI, &S->hsmag[i]);
+-        ss_tiers(hsp, k, &S->nblk, &S->nwrp);
+-        /* ASYNC on purpose. A synchronous cudaMemcpy on the legacy default
+-         * stream cannot begin until prior stream work drains, so once the
+-         * transform sync was removed from the end of this function these
+-         * copies became the new serialisation point: side 0's uploads blocked
+-         * on side 1's still-running transform, and the wait was charged to
+-         * `host per-q` (measured: 1.179 -> 3.220 ms/q). Async keeps the host
+-         * running ahead and issuing the next launch.
+-         *
+-         * Safe because hsp/hsrt/hsg/hslp/hsmag are PINNED (cudaHostAlloc, see
+-         * pipe_side_init) and are only rewritten by the NEXT q's call, by
+-         * which point the stream has drained. THREE paths provide that drain
+-         * and ALL THREE are load-bearing:
+-         *
+-         *   normal            the slab loop's cudaEventSynchronize(ev[3]);
+-         *   PIPE_Q_SKIP       never reaches the slab loop, so it carries its
+-         *                     own cudaStreamSynchronize for exactly this
+-         *                     reason (see the skip site below);
+-         *   every slab soft-skipped
+-         *                     reaches the slab loop but may never sync side 0
+-         *                     (a side-1 skip short-circuits side 0), and is
+-         *                     covered by the post-loop cudaEventSynchronize
+-         *                     on ev[4] -- which is recorded AFTER these copies
+-         *                     and so subsumes them.
+-         *
+-         * A new early return added between here and that ev[4] synchronise
+-         * needs the same treatment, or these must go back to synchronous. */
+-        PERQ_CK(cudaMemcpyAsync(S->sp, hsp, (size_t)k * sizeof(*hsp),
+-                                cudaMemcpyHostToDevice, 0));
+-        PERQ_CK(cudaMemcpyAsync(S->srt, hsrt, (size_t)k * sizeof(*hsrt),
+-                                cudaMemcpyHostToDevice, 0));
+-        PERQ_CK(cudaMemcpyAsync(S->sg, hsg, (size_t)k * sizeof(*hsg),
+-                                cudaMemcpyHostToDevice, 0));
+-        PERQ_CK(cudaMemcpyAsync(S->slp, hslp, (size_t)k * sizeof(*hslp),
+-                                cudaMemcpyHostToDevice, 0));
+-        PERQ_CK(cudaMemcpyAsync(S->smag, S->hsmag, (size_t)k * sizeof(*S->hsmag),
+-                                cudaMemcpyHostToDevice, 0));
+-    }
+-
+-    /* Side 0's norms are G(x) = Y1*x + Y0, a degree-1 form. run_bench gets
+-     * that by mutating POLY in the caller; the pipeline must not, because
+-     * run_td_stage still needs the degree-5 coefficients for side 1. Make the
+-     * variant here and leave POLY alone. */
++            ss_magic_build(hsp[i], hsg[i] > 1 ? cfg->J / hsg[i] : cfg->J, cfg->logI, &P->hsmag[i]);
++        ss_tiers(hsp, k, &P->nblk, &P->nwrp);
++    }
+     {
+-        poly_t P = *POLY;
++        poly_t PP = *POLY;
+         if (side == 0) {
+-            P.deg = 1;
+-            P.c[0] = P.y0;
+-            P.c[1] = P.y1;
+-            for (int z = 2; z < BENCH_NCOEFF; z++) P.c[z] = 0.0;
++            PP.deg = 1;
++            PP.c[0] = PP.y0;
++            PP.c[1] = PP.y1;
++            for (int z = 2; z < BENCH_NCOEFF; z++) PP.c[z] = 0.0;
+         }
+-        norm_setup(&S->N, &P, L, cfg->logI, cfg->J, scale,
+-                   side == cfg->sq_side);
++        norm_setup(&P->N, &PP, L, cfg->logI, cfg->J, scale, side == cfg->sq_side);
+         {
+-            const double bits = norm_exact_bound_bits(&S->N);
+-            if (!norm_fits_exact(&S->N, BN_LIMBS * 32)) {
+-                /* SKIP THIS q, DO NOT KILL THE BAND.
+-                 *
+-                 * Aborting here was strictly the worst option available. It is
+-                 * not even a clean stop: the checkpoint records the failing
+-                 * (q,rho), so "rerun to resume" returns to this exact q and the
+-                 * band can never advance -- and under BOINC the work unit fails,
+-                 * is reissued, and fails identically on the next client. Against
+-                 * that, one special-q out of the tens of millions in a band is a
+-                 * rounding error in yield.
+-                 *
+-                 * WHAT THIS COSTS, because it is not free. "A wider build is
+-                 * byte-identical to a narrower one on any job the narrower one
+-                 * could run" was true before this change, and it is the property
+-                 * that qualified BN_LIMBS 12 -- the 8- and 12-limb relation files
+-                 * were diffed. Skipping weakens it to "byte-identical on any job
+-                 * normscan clears at the narrower width", which is still
+-                 * checkable, but only because normscan now exists to certify that
+-                 * condition up front. Do not weaken it further.
+-                 *
+-                 * Loud, counted, and fatal in bulk: every skip prints, the total
+-                 * lands in the band summary, and PIPE_SKIP_MAX of them ends the
+-                 * run. A hundred skips is not a tail any more, it is the wrong
+-                 * build for the job, and quietly emitting a whole band of
+-                 * deficient output would be worse than stopping. */
++            const double bits = norm_exact_bound_bits(&P->N);
++            if (!norm_fits_exact(&P->N, BN_LIMBS * 32)) {
+                 const int need = bn_limbs_for_bits(bits);
+-                /* NAMES rho, NOT JUST q. A q carries up to deg roots and it is
+-                 * the (q,rho) LATTICE that overflows, not the q: on the 2,1139+
+-                 * octic, (600002827, 369315816) needs 260.75 bits while
+-                 * (600002827, 272545945) needs 238.20 and sieves normally.
+-                 * Printing q alone leaves no way to reproduce or exclude the
+-                 * pair -- and the log position cannot supply it either, because
+-                 * this goes to stderr unbuffered while the per-q sieve lines go
+-                 * to stdout block-buffered, so in a redirected run this line
+-                 * surfaces above its own iteration's header. */
++                const poly_t &P_ = PP;   /* the warning names P.deg */
++                (void)P_;
++
+                 runlog_warn("  ** SKIPPED q=%llu rho=%llu: exact side-%d"
+                             " degree-%d norm may require %.2f bits; the"
+                             " trial-division type holds %d",
+                             (unsigned long long)L->q,
+-                            (unsigned long long)L->rho, side, P.deg, bits,
++                            (unsigned long long)L->rho, side, PP.deg, bits,
+                             BN_LIMBS * 32);
+                 if (need)
+                     runlog_warn("     rebuild with `make BN_LIMBS=%d` to sieve it"
+@@ -635,77 +574,74 @@ static int pipe_side_prepare_q(const fb_t *fb, const fb_t *fbs,
+                 /* MAX over the band, and -1 wins outright: a single (q,rho)
+                  * that no supported width covers makes "rebuild at N" wrong
+                  * advice however many others would have fitted at N. */
++
+                 if (!need) g_pipe_need_limbs = -1;
+                 else if (g_pipe_need_limbs >= 0 && need > g_pipe_need_limbs)
+                     g_pipe_need_limbs = need;
+-                /* DRAIN BEFORE SKIPPING. This path does NOT reach the slab
+-                 * loop -- run_pipeline_impl `continue`s on PIPE_Q_SKIP -- so
+-                 * nothing downstream will synchronise. Two things are left in
+-                 * flight without this: the four cudaMemcpyAsync uploads above,
+-                 * whose pinned source buffers the NEXT q rewrites, and (when
+-                 * side 0 raises the skip) side 1's k_transform, whose
+-                 * execution errors would otherwise be reported against the
+-                 * next q's first CUDA call. Skips are rare and capped at
+-                 * PIPE_SKIP_MAX, so the cost here is irrelevant. */
+-                PERQ_CK(cudaStreamSynchronize(0));
+                 rc = PIPE_Q_SKIP;
+                 goto done;
+             }
+         }
+     }
+-    /* CINIT and BOUND were checked once, before any allocation, and are
+-     * invariant across the special-q band. Keeping them in the persistent
+-     * side context avoids reparsing or floating-point conversion per q. */
+     {
+-        const float t = norm_target_host(&S->N, 0, cfg->J / 2);
++        const float t = norm_target_host(&P->N, 0, cfg->J / 2);
+         const int ti = (int)(t + 0.5f);
+-        S->tconst = (ti < 1) ? 1u :
+-                    ((uint32_t)ti > 255u ? 255u : (uint32_t)ti);
++        P->tconst = (ti < 1) ? 1u : ((uint32_t)ti > 255u ? 255u : (uint32_t)ti);
+     }
++    rc = 0;
++done:
++    free(idx); free(tp); free(trt); free(tg); free(tlp);
++    *t_host += host_ms() - h0;
++    return rc;
++}
+ 
+-    *t_host = host_ms() - h0;
+-    /* k_transform writes these unconditionally; NULL is an illegal access */
++template <bool SLABBED>
++static int pipe_side_prepare_dev(const fb_t *fb, const qlat_t *L, const bench_cfg_t *cfg,
++                                 int blocks, pside_t *S, const pprep_t *P)
++{
++    /* rsa530 patch 4: the DEVICE half: publish P into S, upload the small-sieve tables (ASYNC on the legacy
++     * stream -- see the drain-path notes that used to sit in pipe_side_prepare_q: the three paths that drain
++     * the stream before these pinned buffers are rewritten are unchanged), reset the per-q counters, transform. */
++    int rc = -1;
++#define PERQ_CK(x) do { if (CUDA_CHECKED(x)) goto done; } while (0)
++    S->nsmall = P->nsmall; S->nblk = P->nblk; S->nwrp = P->nwrp; S->tconst = P->tconst; S->N = P->N;
++    if (cfg->small_sieve && P->nsmall) {
++        const size_t k = P->nsmall;
++        PERQ_CK(cudaMemcpyAsync(S->sp, P->hsp, k * sizeof(*P->hsp), cudaMemcpyHostToDevice, 0));
++        PERQ_CK(cudaMemcpyAsync(S->srt, P->hsrt, k * sizeof(*P->hsrt), cudaMemcpyHostToDevice, 0));
++        PERQ_CK(cudaMemcpyAsync(S->sg, P->hsg, k * sizeof(*P->hsg), cudaMemcpyHostToDevice, 0));
++        PERQ_CK(cudaMemcpyAsync(S->slp, P->hslp, k * sizeof(*P->hslp), cudaMemcpyHostToDevice, 0));
++        PERQ_CK(cudaMemcpyAsync(S->smag, P->hsmag, k * sizeof(*P->hsmag), cudaMemcpyHostToDevice, 0));
++    }
+     PERQ_CK(cudaMemset(S->d_nproj, 0, 4));
+     PERQ_CK(cudaMemset(S->d_nlost, 0, 8));
+-
+     PERQ_CK(cudaEventRecord(S->ev[0]));
+     k_transform<SLABBED><<<blocks, cfg->threads>>>(S->primes, S->roots, S->plat, fb->n,
+         cfg->logI, cfg->J, L->a0, L->a1, L->b0, L->b1,
+         S->d_nproj, S->d_nlost, S->walk_cur);
+     PERQ_CK(cudaEventRecord(S->ev[4]));
+-    /* NO SYNCHRONIZE HERE. This function used to block on the transform purely
+-     * to read t_transform, and nothing after that read touches device data --
+-     * it is cudaGetLastError, an elapsed-time read and five host free()s. The
+-     * block cost a measured 0.800 ms/q of GPU idle at the
+-     * k_transform -> k_fill_atomic boundary plus 0.487 at
+-     * k_transform -> k_transform (RESULTS finding 88's gap ranking), because
+-     * the card drained while the host prepared the other side and the TD
+-     * tables. The elapsed time is now read after the slab loop, where the
+-     * ev[3] sync has already guaranteed ev[4] completed.
+-     *
+-     * cudaGetLastError still catches launch-configuration failures, which is
+-     * what it was for. An error raised DURING execution now surfaces at the
+-     * next sync, inside pipe_side_sieve_join -- normal async CUDA practice. */
+     PERQ_CK(cudaGetLastError());
+-    /* The transform time is NOT produced here any more. ev[0] and ev[4] are
+-     * left for run_pipeline_impl to subtract after the slab loop, which is
+-     * the only place they are known to be complete. */
+     rc = 0;
+-
+ done:
+-    free(idx); free(tp); free(trt); free(tg); free(tlp);
+ #undef PERQ_CK
+     return rc;
+ }
+ 
+-/* The per-side bucket workspace. The two sides share ONE allocation today
+- * precisely because they run back to back; `--fill-concurrent` gives each its
+- * own so the two fills can overlap, and that second array is the entire cost
+- * of the option. See run_pipeline_impl's admission check.
+- *
+- * `stream` is 0 -- the legacy default stream -- in serial mode, which is what
+- * keeps that path identical to the pre-split code: every launch below stays on
+- * the stream it was always on, in the order it was always in. */
++/* The original entry point: host half into set 0, then the device half. A SKIP drains the legacy stream first
++ * (the other side may have issued its uploads + transform already, into buffers the next q rewrites). */
++template <bool SLABBED>
++static int pipe_side_prepare_q(const fb_t *fb, const fb_t *fbs, const qlat_t *L,
++                               const poly_t *POLY, const bench_cfg_t *cfg, int side,
++                               double scale, int blocks, pside_t *S, double *t_host)
++{
++    const int r = pipe_side_prepare_host<SLABBED>(fb, fbs, L, POLY, cfg, side, scale, S, &S->prep[0], t_host);
++    if (r == PIPE_Q_SKIP) {
++        if (CUDA_CHECKED(cudaStreamSynchronize(0))) return -1;
++        return PIPE_Q_SKIP;
++    }
++    if (r) return r;
++    return pipe_side_prepare_dev<SLABBED>(fb, L, cfg, blocks, S, &S->prep[0]);
++}
+ typedef struct {
+     uint8_t     *bucket;
+     uint32_t    *cursor;
+@@ -1345,6 +1281,7 @@ static int pipe_td_perq(pipe_td_t *C, const qlat_t *L, const bench_cfg_t *cfg,
+     k_scatter_sel<<<blocks, threads>>>(C->d_aflag, C->d_aoff, n, C->d_sel,
+                                        C->ccap, C->d_nacc);
+     CK(cudaEventRecord(E[11]));
++    if (g_pipe_td_hook) { g_pipe_td_hook(); g_pipe_td_hook = nullptr; }   /* rsa530 patch 4 */
+     CK(cudaEventSynchronize(E[11])); CK(cudaGetLastError());
+     tm->emit     += time_kernel(E[2], E[3]);
+     tm->summary  += time_kernel(E[3], E[4]);
+@@ -1558,6 +1495,7 @@ static int pipe_finalize_outputs(FILE **frp, FILE **fcp,
+ {
+     int bad = 0;
+ 
++    fe_stop();    /* rsa530 patch 2: flush the async writer before closing its streams */
+     if (frp && *frp) {
+         const int io_bad = ferror(*frp);
+         if (fclose(*frp) || io_bad) bad = 1;
+@@ -1618,6 +1556,159 @@ static inline double pipe_ovl_credit(double acc_ovl)
+     return acc_ovl > 0 ? acc_ovl : 0;
+ }
+ 
++/* ---- async emit (rsa530 patch 2, 2026-09-27) -------------------------------- *
++ * Without --cofactor the host join loop sorted + formatted + wrote ~770 lines per special-q on the
++ * pipeline's own thread (0.40 ms/q even with the fast formatter) while the GPU idled. The loop now
++ * only PACKS each line's raw fields (a few dozen words) into a batch; one writer thread sorts,
++ * formats and fwrites them in FIFO order, so the files are byte-identical. Every flush/tell/close
++ * of the two streams goes through pipe_checkpoint or pipe_finalize_outputs, and both drain the
++ * writer first (fe_drain / fe_stop), so checkpoint offsets always cover exactly the bytes emitted.
++ * Packed record (uint32 words): w0 = kind(0 rel,1 cand) | c0<<8 | c1<<16 | has0<<24 | has1<<25 |
++ * neg0<<26 | neg1<<27; a (2 words), b (2), cof0 (2), cof1 (2); then c0 + c1 UNSORTED factors. */
++#include <thread>
++#include <mutex>
++#include <condition_variable>
++#include <deque>
++#include <vector>
++#include <string>
++typedef struct fe_async_s {
++    std::thread th; std::mutex m; std::condition_variable cv, cv_idle;
++    std::deque<std::vector<uint32_t> > q; bool stop, busy, on;
++    FILE *fr, *fc;
++} fe_async_t;
++static fe_async_t g_fe;
++static char *fe_u64(char *p, uint64_t v);
++static char *fe_i64(char *p, int64_t v);
++static char *fe_hex(char *p, uint64_t v);
++static void fe_format(const std::vector<uint32_t> &B, std::string &rb, std::string &cb)
++{
++    char ln[128 + 20 * (2 * 64 + 2)];
++    uint32_t f[2][64];
++    size_t i = 0;
++    while (i < B.size()) {
++        const uint32_t w0 = B[i];
++        const int kind = w0 & 0xff; const uint32_t c0 = (w0 >> 8) & 0xff, c1 = (w0 >> 16) & 0xff;
++        const int has0 = (w0 >> 24) & 1, has1 = (w0 >> 25) & 1, neg0 = (w0 >> 26) & 1, neg1 = (w0 >> 27) & 1;
++        const int64_t a = (int64_t)((uint64_t)B[i + 1] | ((uint64_t)B[i + 2] << 32));
++        const int64_t b = (int64_t)((uint64_t)B[i + 3] | ((uint64_t)B[i + 4] << 32));
++        const uint64_t u0 = (uint64_t)B[i + 5] | ((uint64_t)B[i + 6] << 32);
++        const uint64_t u1 = (uint64_t)B[i + 7] | ((uint64_t)B[i + 8] << 32);
++        i += 9;
++        for (uint32_t z = 0; z < c0; z++) f[0][z] = B[i + z];
++        i += c0;
++        for (uint32_t z = 0; z < c1; z++) f[1][z] = B[i + z];
++        i += c1;
++        std::sort(f[0], f[0] + c0);
++        std::sort(f[1], f[1] + c1);
++        char *q = ln;
++        if (kind == 0) {
++            q = fe_i64(q, a); *q++ = ','; q = fe_i64(q, b); *q++ = ':';
++            for (uint32_t z = 0; z < c0; z++) { if (z) *q++ = ','; q = fe_hex(q, f[0][z]); }
++            if (has0) { if (c0) *q++ = ','; q = fe_hex(q, u0); }
++            *q++ = ':';
++            for (uint32_t z = 0; z < c1; z++) { if (z) *q++ = ','; q = fe_hex(q, f[1][z]); }
++            if (has1) { if (c1) *q++ = ','; q = fe_hex(q, u1); }
++            *q++ = '\n';
++            rb.append(ln, (size_t)(q - ln));
++        } else {
++            if (neg0) *q++ = '-';
++            q = fe_u64(q, u0); *q++ = ',';
++            if (neg1) *q++ = '-';
++            q = fe_u64(q, u1); *q++ = ':';
++            q = fe_i64(q, a); *q++ = ','; q = fe_i64(q, b); *q++ = ':';
++            for (uint32_t z = 0; z < c0; z++) { if (z) *q++ = ','; q = fe_hex(q, f[0][z]); }
++            *q++ = ':';
++            for (uint32_t z = 0; z < c1; z++) { if (z) *q++ = ','; q = fe_hex(q, f[1][z]); }
++            *q++ = '\n';
++            cb.append(ln, (size_t)(q - ln));
++        }
++    }
++}
++static void fe_worker(void)
++{
++    std::string rb, cb;
++    for (;;) {
++        std::vector<uint32_t> batch;
++        {
++            std::unique_lock<std::mutex> l(g_fe.m);
++            g_fe.cv.wait(l, [] { return g_fe.stop || !g_fe.q.empty(); });
++            if (g_fe.q.empty()) return;              /* stop requested and nothing left */
++            batch.swap(g_fe.q.front()); g_fe.q.pop_front(); g_fe.busy = true;
++        }
++        rb.clear(); cb.clear();
++        fe_format(batch, rb, cb);
++        if (!rb.empty() && g_fe.fr) fwrite(rb.data(), 1, rb.size(), g_fe.fr);   /* errors: ferror() at close */
++        if (!cb.empty() && g_fe.fc) fwrite(cb.data(), 1, cb.size(), g_fe.fc);
++        {
++            std::lock_guard<std::mutex> l(g_fe.m);
++            g_fe.busy = false;
++            if (g_fe.q.empty()) g_fe.cv_idle.notify_all();
++        }
++    }
++}
++static void fe_start(FILE *fr, FILE *fc)
++{
++    if (g_fe.on) return;
++    g_fe.fr = fr; g_fe.fc = fc; g_fe.stop = false; g_fe.busy = false; g_fe.q.clear();
++    try { g_fe.th = std::thread(fe_worker); g_fe.on = true; }
++    catch (...) {   /* e.g. EAGAIN under a pids limit: keep the synchronous path (g_fe.on stays false) */
++        fprintf(stderr, "  warning: async emit thread unavailable; synchronous join-loop output\n");
++    }
++}
++static void fe_drain(void)
++{
++    if (!g_fe.on) return;
++    std::unique_lock<std::mutex> l(g_fe.m);
++    g_fe.cv_idle.wait(l, [] { return g_fe.q.empty() && !g_fe.busy; });
++}
++static void fe_stop(void)
++{
++    if (!g_fe.on) return;
++    fe_drain();
++    { std::lock_guard<std::mutex> l(g_fe.m); g_fe.stop = true; }
++    g_fe.cv.notify_all();
++    g_fe.th.join(); g_fe.on = false; g_fe.fr = g_fe.fc = NULL;
++}
++static void fe_submit(std::vector<uint32_t> &batch)
++{
++    if (batch.empty()) return;
++    { std::lock_guard<std::mutex> l(g_fe.m); g_fe.q.emplace_back(); g_fe.q.back().swap(batch); }
++    g_fe.cv.notify_one();
++    batch.clear();
++}
++
++/* ---- fast line emit (rsa530 patch, 2026-09-27) --------------------------- *
++ * The host join loop formatted every relation/candidate with ~20 fprintf calls and a 12-limb
++ * bn_to_dec per cofactor: measured 0.84-1.13 ms per special-q on the c160 (a c160 q has ~600
++ * candidates), during which the GPU idles. Same bytes, built in a local buffer and written with
++ * one fwrite. Cofactors that do not fit 64 bits keep the original bn_to_dec path. */
++static char *fe_u64(char *p, uint64_t v)
++{
++    char t[24]; int n = 0;
++    do { t[n++] = (char)('0' + v % 10u); v /= 10u; } while (v);
++    while (n) *p++ = t[--n];
++    return p;
++}
++static char *fe_i64(char *p, int64_t v)
++{
++    if (v < 0) { *p++ = '-'; return fe_u64(p, (uint64_t)0 - (uint64_t)v); }
++    return fe_u64(p, (uint64_t)v);
++}
++static char *fe_hex(char *p, uint64_t v)
++{
++    static const char H[] = "0123456789abcdef";
++    char t[20]; int n = 0;
++    do { t[n++] = H[v & 15u]; v >>= 4; } while (v);
++    while (n) *p++ = t[--n];
++    return p;
++}
++static inline int fe_bn_u64(const bn_t *x, uint64_t *out)
++{
++    for (int i = 2; i < BN_LIMBS; i++) if (x->v[i]) return 0;
++    *out = (uint64_t)x->v[0] | ((uint64_t)x->v[1] << 32);
++    return 1;
++}
++
+ template <bool SLABBED>
+ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+                              const fb_t *fb0, const fb_t *fbs0,
+@@ -1649,6 +1740,7 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+     uint32_t *d_cursor_c = NULL, *d_overflow_c = NULL;
+     cudaStream_t st_side[2] = { 0, 0 };
+     int concurrent = 0;         /* the option as GRANTED, not as requested */
++    int td_deferred = 0;        /* rsa530 patch 3: this q's TD tables are built after the fill issue */
+     pbkt_t bk1, bk0;
+     uint32_t *d_n = NULL;
+     unsigned long long *d_pre = NULL;
+@@ -2022,6 +2114,7 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+         } else if (!(fr = fopen(rtmp, "wb"))) {
+             perror(rtmp); rc = -1; goto done;
+         }
++        setvbuf(fr, NULL, _IOFBF, 4u << 20);   /* rsa530 patch */
+     }
+     if (cfg->candidates) {
+         if (cfg->resume) {
+@@ -2033,7 +2126,11 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+         } else if (!(fc = fopen(ctmp, "wb"))) {
+             perror(ctmp); rc = -1; goto done;
+         }
++        setvbuf(fc, NULL, _IOFBF, 4u << 20);   /* rsa530 patch: ~600 lines per q */
+     }
++    /* rsa530 patch 2: async writer for the non --cofactor join loop (the --cofactor path writes from
++     * cofq_flush on this thread and keeps doing so). Env CS_SYNC_EMIT=1 = the synchronous path. */
++    if (!cfg->cofactor && (fr || fc) && !getenv("CS_SYNC_EMIT")) fe_start(fr, fc);
+     /* Only meaningful once there is a relation file to point at. */
+     /* Unconditional, NOT under `if (fr)`. pipe_checkpoint returns 0 -- success
+      * -- at its own `if (!fr || !cfg->relations)` guard, so pipe_try_checkpoint
+@@ -2094,6 +2191,13 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+      * resume scan sit under one coarse label and can legitimately run for
+      * minutes. */
+     wd_arm_kill();
++    /* rsa530 patch 4: look-ahead prepare state (unslabbed bands only). The q after the current one is selected
++     * and HOST-prepared into the alternate pprep_t set by g_pipe_td_hook, i.e. while the current q's trial
++     * division runs on the GPU; the loop top then only issues its device half. CS_NO_LOOKAHEAD=1 disables it. */
++    struct { int valid, prepared, from_gen, rc1, rc0, buf; qsel_t q; qlat_t L; double th1, th0; } la;
++    memset(&la, 0, sizeof la);
++    int la_curbuf = 0;
++    const int la_enabled = (slab_plan->nslab == 1) && !getenv("CS_NO_LOOKAHEAD");
+     for (uint32_t qi = 0;; qi++) {
+         qsel_t generated, checked;
+         const qsel_t *cur;
+@@ -2157,7 +2261,17 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+         const int want_host = !cfg->cofactor || fc;
+ 
+         wd_phase("q.select");
+-        if (qi < nq) {
++        int la_use = 0;
++        if (la.valid) {
++            /* rsa530 patch 4: the look-ahead selected (and maybe host-prepared) this q during the previous one.
++             * The count limit is re-checked with the REAL nqdone (the previous q may have been abandoned). */
++            la.valid = 0;
++            if (la.from_gen && cfg->nq_max && nqdone >= cfg->nq_max) {
++                count_limit_reached = 1;
++                break;
++            }
++            generated = la.q; cur = &generated; la_use = 1;
++        } else if (qi < nq) {
+             cur = &qlist[qi];
+         } else if (qgen) {
+             int qr;
+@@ -2353,13 +2467,24 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+                 hreg = host_ms();
+             }
+             wd_phase("q.prepare");
+-            const int p1 = pipe_side_prepare_q<SLABBED>(fb1, fbs1, &Lq, POLY, cfg, 1,
+-                                                        cfg->scale, blocks, &S1,
+-                                                        &th1);
+-            const int p0 = (p1 != 0) ? p1
+-                         : pipe_side_prepare_q<SLABBED>(fb0, fbs0, &Lq, POLY, cfg, 0,
+-                                                        cfg->scale0, blocks, &S0,
+-                                                        &th0);
++            int p1, p0;
++            if (la_use && la.prepared) {
++                /* rsa530 patch 4: host halves already done during the previous q; device halves now */
++                th1 += la.th1; th0 += la.th0; la_curbuf = la.buf;
++                p1 = la.rc1; p0 = la.rc0;
++                if (p1 == 0 && p0 == 0) {
++                    p1 = pipe_side_prepare_dev<SLABBED>(fb1, &Lq, cfg, blocks, &S1, &S1.prep[la_curbuf]);
++                    p0 = (p1 != 0) ? p1
++                       : pipe_side_prepare_dev<SLABBED>(fb0, &Lq, cfg, blocks, &S0, &S0.prep[la_curbuf]);
++                }
++            } else {
++                la_curbuf = 0;
++                p1 = pipe_side_prepare_q<SLABBED>(fb1, fbs1, &Lq, POLY, cfg, 1,
++                                                  cfg->scale, blocks, &S1, &th1);
++                p0 = (p1 != 0) ? p1
++                   : pipe_side_prepare_q<SLABBED>(fb0, fbs0, &Lq, POLY, cfg, 0,
++                                                  cfg->scale0, blocks, &S0, &th0);
++            }
+             if (p1 == PIPE_Q_SKIP || p0 == PIPE_Q_SKIP) {
+                 if (++nqskip >= (unsigned long long)PIPE_SKIP_MAX) {
+                     /* A POLICY STOP, NOT A CRASH. Falling out with rc = -1
+@@ -2415,7 +2540,13 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+             }
+             if (cfg->qspan) { prep_q   = host_ms() - hreg; hreg = host_ms(); }
+             wd_phase("q.td_prepare");
+-            if (p1 < 0 || p0 < 0 || pipe_td_prepare_q(&C, fbs1, fbs0, &Lq, cfg, &tm)) {
++            if (p1 < 0 || p0 < 0) { rc = -1; break; }
++            /* rsa530 patch 3: under --fill-concurrent the TD small-prime tables are built AFTER both
++             * sides' sieve work is issued (slab 0 below), so their ~1-2 ms of host work overlaps the
++             * ~17 ms sieve instead of running with the GPU drained. k_td is their only consumer and runs
++             * after both joins. Serial arm: unchanged. */
++            td_deferred = concurrent;
++            if (!td_deferred && pipe_td_prepare_q(&C, fbs1, fbs0, &Lq, cfg, &tm)) {
+                 rc = -1; break;
+             }
+             /* AFTER the skip check, not before: last_q names the band's final
+@@ -2490,6 +2621,14 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+                  * await them, and `done:` below frees the bucket array they
+                  * are writing into. Drain before unwinding. */
+                 if (i1 || i0) { cudaDeviceSynchronize(); rc = -1; break; }
++                /* rsa530 patch 3: the deferred per-q TD tables, while both sides sieve. On failure drain
++                 * the in-flight sieve work first (same rule as a failed issue). */
++                if (td_deferred) {
++                    td_deferred = 0;
++                    if (pipe_td_prepare_q(&C, fbs1, fbs0, &Lq, cfg, &tm)) {
++                        cudaDeviceSynchronize(); rc = -1; break;
++                    }
++                }
+                 sv1 = pipe_side_sieve_join(1, &bk1, &S1, &sf1, &sa1, concurrent);
+                 sv0 = pipe_side_sieve_join(0, &bk0, &S0, &sf0, &sa0, concurrent);
+                 /* NOTHING collapses sv0 into sv1 here, and an earlier
+@@ -2629,11 +2768,36 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+                 const int do_verify = nqdone == 0 && cfg->td_verify && hn_s != 0 &&
+                     (!td_verified || cfg->cofgate);
+                 wd_phase("slab.trialdiv");
++                /* rsa530 patch 4: while this q's resieve/TD/classify kernels run, select and host-prepare q+1 */
++                auto la_prepare_next = [&]() {
++                    la.valid = 0; la.prepared = 0; la.from_gen = 0;
++                    if (qi + 1 < nq) {
++                        la.q = qlist[qi + 1];
++                    } else if (qgen) {
++                        if (cfg->nq_max && nqdone + 1 >= cfg->nq_max) return;   /* the limit ends the band first */
++                        qsel_t g;
++                        const int qr = sqgen_next(qgen, &g);
++                        if (qr <= 0) return;                 /* exhausted or failed: the loop top reproduces it */
++                        la.q = g; la.from_gen = 1;
++                    } else return;
++                    la.valid = 1;                            /* the loop top validates and reports as before */
++                    if (qsel_validate(&la.q, POLY, cfg->sq_side) != QSEL_VALID) return;
++                    qlat_build(&la.L, la.q.q, la.q.rho, POLY->skew);
++                    la.buf = 1 - la_curbuf; la.th1 = 0; la.th0 = 0;
++                    la.rc1 = pipe_side_prepare_host<SLABBED>(fb1, fbs1, &la.L, POLY, cfg, 1, cfg->scale,
++                                                             &S1, &S1.prep[la.buf], &la.th1);
++                    la.rc0 = (la.rc1 != 0) ? la.rc1
++                           : pipe_side_prepare_host<SLABBED>(fb0, fbs0, &la.L, POLY, cfg, 0, cfg->scale0,
++                                                             &S0, &S0.prep[la.buf], &la.th0);
++                    la.prepared = 1;
++                };
++                if (la_enabled) g_pipe_td_hook = la_prepare_next;
+                 const int tdrc = pipe_td_perq<SLABBED>(&C, &Lq, cfg, &S1, &S0,
+                                           d_two, xmax,
+                                           j_base, blocks, cfg->threads, do_verify,
+                                           &n, &nacc_s, &tm, &tv, want_host,
+                                           !want_host, cofgate_found);
++                g_pipe_td_hook = nullptr;
+                 if (tdrc < 0) { rc = -1; break; }
+                 if (tdrc > 0) {
+                     /* Untrustworthy TD: drop THIS slab only and carry on.
+@@ -2716,6 +2880,8 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+ 
+             join_start = host_ms();
+             wd_phase("slab.join");
++            std::vector<uint32_t> feb;                 /* rsa530 patch 2: this slab's packed lines */
++            if (g_fe.on) feb.reserve((size_t)nacc_s * 40);
+             for (uint32_t k = 0; want_host && k < nacc_s; k++) {
+                 int64_t a = C.h_ca[k], b = C.h_cb[k];
+                 const uint32_t c0 = C.h_cfn[0][k], c1 = C.h_cfn[1][k];
+@@ -2729,12 +2895,48 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+                             (unsigned long long)cur->q, c0, c1, TD_FMAX);
+                     rc = -1; break;
+                 }
++                if (b < 0) { a = -a; b = -b; }
++                if (g_fe.on) {
++                    /* async: pack raw fields; the writer sorts + formats (same bytes, same order) */
++                    const int isrel = (b0 <= (int)cfg->lpb0 && b1 <= (int)cfg->lpb);
++                    uint64_t pu0 = 0, pu1 = 0;
++                    const int fit0 = fe_bn_u64(&C.h_ccof[0][k], &pu0), fit1 = fe_bn_u64(&C.h_ccof[1][k], &pu1);
++                    if (isrel) nrel++; else ncand++;
++                    if (isrel ? !fr : !fc) continue;     /* no stream for this kind: nothing to write */
++                    if (isrel ? ((b0 <= 1 || fit0) && (b1 <= 1 || fit1)) : (fit0 && fit1)) {
++                        feb.push_back((isrel ? 0u : 1u) | (c0 << 8) | (c1 << 16) |
++                                      ((uint32_t)(isrel && b0 > 1) << 24) | ((uint32_t)(isrel && b1 > 1) << 25) |
++                                      ((uint32_t)(!isrel && b0 > (int)cfg->lpb0) << 26) |
++                                      ((uint32_t)(!isrel && b1 > (int)cfg->lpb) << 27));
++                        feb.push_back((uint32_t)(uint64_t)a); feb.push_back((uint32_t)((uint64_t)a >> 32));
++                        feb.push_back((uint32_t)(uint64_t)b); feb.push_back((uint32_t)((uint64_t)b >> 32));
++                        feb.push_back((uint32_t)pu0); feb.push_back((uint32_t)(pu0 >> 32));
++                        feb.push_back((uint32_t)pu1); feb.push_back((uint32_t)(pu1 >> 32));
++                        feb.insert(feb.end(), f0, f0 + c0);
++                        feb.insert(feb.end(), f1, f1 + c1);
++                        continue;
++                    }
++                    if (isrel) nrel--; else ncand--;   /* rare wide-cofactor line: synchronous path below */
++                    fe_submit(feb); fe_drain();          /* keep FIFO order with the direct writes */
++                }
+                 std::sort((uint32_t *)f0, (uint32_t *)f0 + c0);
+                 std::sort((uint32_t *)f1, (uint32_t *)f1 + c1);
+-                if (b < 0) { a = -a; b = -b; }
+                 if (b0 <= (int)cfg->lpb0 && b1 <= (int)cfg->lpb) {
+                     nrel++;
+-                    if (fr && !cfg->cofactor) {
++                    uint64_t fu0 = 0, fu1 = 0;
++                    if (fr && !cfg->cofactor &&
++                        (b0 <= 1 || fe_bn_u64(&C.h_ccof[0][k], &fu0)) &&
++                        (b1 <= 1 || fe_bn_u64(&C.h_ccof[1][k], &fu1))) {
++                        char ln[64 + 20 * (2 * TD_FMAX + 2)], *q = ln;
++                        q = fe_i64(q, a); *q++ = ','; q = fe_i64(q, b); *q++ = ':';
++                        for (uint32_t z = 0; z < c0; z++) { if (z) *q++ = ','; q = fe_hex(q, f0[z]); }
++                        if (b0 > 1) { if (c0) *q++ = ','; q = fe_hex(q, fu0); }
++                        *q++ = ':';
++                        for (uint32_t z = 0; z < c1; z++) { if (z) *q++ = ','; q = fe_hex(q, f1[z]); }
++                        if (b1 > 1) { if (c1) *q++ = ','; q = fe_hex(q, fu1); }
++                        *q++ = '\n';
++                        fwrite(ln, 1, (size_t)(q - ln), fr);
++                    } else if (fr && !cfg->cofactor) {
+                         fprintf(fr, "%lld,%lld:", (long long)a, (long long)b);
+                         for (uint32_t z = 0; z < c0; z++)
+                             fprintf(fr, "%s%x", z ? "," : "", f0[z]);
+@@ -2755,7 +2957,20 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+                 }
+                 ncand++;
+                 if (cfg->cofactor) continue;
+-                if (fc) {
++                uint64_t cu0, cu1;
++                if (fc && fe_bn_u64(&C.h_ccof[0][k], &cu0) && fe_bn_u64(&C.h_ccof[1][k], &cu1)) {
++                    char ln[96 + 20 * (2 * TD_FMAX + 2)], *q = ln;
++                    if (b0 > (int)cfg->lpb0) *q++ = '-';
++                    q = fe_u64(q, cu0); *q++ = ',';
++                    if (b1 > (int)cfg->lpb) *q++ = '-';
++                    q = fe_u64(q, cu1); *q++ = ':';
++                    q = fe_i64(q, a); *q++ = ','; q = fe_i64(q, b); *q++ = ':';
++                    for (uint32_t z = 0; z < c0; z++) { if (z) *q++ = ','; q = fe_hex(q, f0[z]); }
++                    *q++ = ':';
++                    for (uint32_t z = 0; z < c1; z++) { if (z) *q++ = ','; q = fe_hex(q, f1[z]); }
++                    *q++ = '\n';
++                    fwrite(ln, 1, (size_t)(q - ln), fc);
++                } else if (fc) {
+                     fprintf(fc, "%s%s,", b0 > (int)cfg->lpb0 ? "-" : "",
+                             bn_to_dec(&C.h_ccof[0][k], buf));
+                     fprintf(fc, "%s%s:%lld,%lld:",
+@@ -2770,6 +2985,7 @@ static int run_pipeline_impl(const fb_t *fb1, const fb_t *fbs1,
+                     fputc('\n', fc);
+                 }
+             }
++            if (g_fe.on) fe_submit(feb);
+             tm.join += host_ms() - join_start;
+             if (rc) break;
+ 

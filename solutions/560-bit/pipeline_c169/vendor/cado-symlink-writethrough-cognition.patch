@@ -1,0 +1,90 @@
+diff --git a/filter/dup2.cpp b/filter/dup2.cpp
+index 1ef5e23..1689f35 100644
+--- a/filter/dup2.cpp
++++ b/filter/dup2.cpp
+@@ -225,6 +225,13 @@ struct output_specification { /* {{{ */
+     }
+ }; /* }}} */
+ 
++#include <sys/stat.h>
++/* RSA-530 patch (ported for RSA-560): see the write-through note in the file loop below. A free
++ * function because dup2_process has a member named `stat`. */
++static inline bool cado_path_is_symlink(char const * p) {
++    struct stat lsb;
++    return p && lstat(p, &lsb) == 0 && S_ISLNK(lsb.st_mode);
++}
+ struct dup2_process { /* {{{ */
+     output_specification output;
+ 
+@@ -756,6 +763,10 @@ struct dup2_process { /* {{{ */
+                 "roots mod p):\n", nthreads_for_roots);
+         for(auto const & f : files) {
+             auto [ oname, oname_tmp ] = output.get_outfilename_from_infilename(f);
++            /* RSA-530 patch (ported for RSA-560): an output path that is already a symlink (memfd via
++             * /proc/<pid>/fd/<n>) is written THROUGH, not replaced by a temp file + rename(). */
++            const bool through = cado_path_is_symlink(oname.c_str());
++            if (through) oname_tmp = oname;
+             ofstream_maybe_compressed out(oname_tmp);
+             nrels = ndup = nskip = 0;
+ 
+@@ -774,7 +785,7 @@ struct dup2_process { /* {{{ */
+ 
+             out.close();
+             int rc;
+-            rc = rename(oname_tmp.c_str(), oname.c_str());
++            rc = through ? 0 : rename(oname_tmp.c_str(), oname.c_str());
+             if (rc < 0)
+                 throw cado::error("rename({} -> {}): {}",
+                             oname_tmp, oname, strerror(errno));
+diff --git a/utils/fstream_maybe_compressed.cpp b/utils/fstream_maybe_compressed.cpp
+index f4a5825..1230060 100644
+--- a/utils/fstream_maybe_compressed.cpp
++++ b/utils/fstream_maybe_compressed.cpp
+@@ -23,11 +23,18 @@ streambase_maybe_compressed::streambase_maybe_compressed(std::string const & nam
+     open(name, mode);
+ }
+ 
++#include <sys/stat.h>
++/* RSA-530 patch (ported for RSA-560): an OUTPUT path that is already a symlink (memfd via
++ * /proc/<pid>/fd/<n>) is written THROUGH, not replaced by a temp file + rename(). */
++static inline bool cado_path_is_symlink(char const * p) {
++    struct stat lsb;
++    return p && lstat(p, &lsb) == 0 && S_ISLNK(lsb.st_mode);
++}
+ void streambase_maybe_compressed::open(std::string const & name_arg, std::ios_base::openmode mode)
+ {
+     std::string name = name_arg;
+     orig_name = name;
+-    if (mode & std::ios_base::out) {
++    if ((mode & std::ios_base::out) && !cado_path_is_symlink(name.c_str())) {
+         // fmtlib's fmt::format oddly mentions that it can throw a format
+         // error, while its constexpr nature should be able to mark it as
+         // impossible.
+diff --git a/utils/gzip.cpp b/utils/gzip.cpp
+index 0423522..f5c7821 100644
+--- a/utils/gzip.cpp
++++ b/utils/gzip.cpp
+@@ -251,6 +251,14 @@ prepare_grouped_command_lines(std::vector<std::string> const & list_of_files)
+     return new_commands;
+ }
+ 
++#include <sys/stat.h>
++/* RSA-530 patch (ported to this tree for RSA-560): when an OUTPUT path is already a symlink (the
++ * pipeline points these at memfds via /proc/<pid>/fd/<n> to keep multi-GB filter intermediates off a
++ * 10 GB tmpfs), write THROUGH it instead of writing a temp file and rename()-ing over the link. */
++static inline bool cado_path_is_symlink(char const * p) {
++    struct stat lsb;
++    return p && lstat(p, &lsb) == 0 && S_ISLNK(lsb.st_mode);
++}
+ FILE * fopen_maybe_compressed2(char const * orig_name, char const * mode,
+                                int * p_pipeflag, char const ** suf)
+ {
+@@ -271,7 +279,7 @@ FILE * fopen_maybe_compressed2(char const * orig_name, char const * mode,
+ 
+         /* Just *any* file that we write to will get a .tmp.$PID suffix
+          */
+-        if (strchr(mode, 'w')) {
++        if (strchr(mode, 'w') && !cado_path_is_symlink(orig_name)) {
+             name = tempname = fmt::format("{}.tmp.{}", name, getpid());
+             std::ofstream dummy(tempname, std::ios::out);
+             if (dummy.is_open()) {

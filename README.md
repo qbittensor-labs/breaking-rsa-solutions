@@ -17,17 +17,27 @@ what came before.
 |---|---|---|---|---|
 | ~320 (baseline) | c103 | msieve SIQS cascade (CPU) — operator example | — | qBitTensor Labs |
 | 340-bit | c103 | multithreaded YAFU SIQS (CPU) | ~7 min | anonymous participant |
-| 460-bit | c140 | GPU-GNFS v1 (custom GPU lattice sieve + CPU linalg) | ~3.5 h | anonymous participant |
+| 460-bit | c139 | GPU-GNFS v1 (custom GPU lattice sieve + CPU linalg) | ~3.5 h | anonymous participant |
 | 480-bit | c145 | GPU-GNFS v2 (+ GPU block-Lanczos, parallel sqrt) | ~3 h 12 m | Xdev |
 | 500-bit | c151 | GPU-GNFS v3 (fully hardened) | ~3.9 h | Xdev |
+| 512-bit | c155 | GPU-GNFS v4 (+ concurrent CADO-`las` CPU siever, CADO filter, overlapped speculative linear algebra) | ~3 h 10 m | Xdev |
+| 530-bit | c160 | GPU-GNFS v5 (+ `cuda-sieve` GPU factor-base siever, CPU cofactorization) | ~3 h 46 m | anonymous participant |
+| 560-bit | c169 | GNFS — CADO-NFS (Cognition) GPU `glas` lattice siever + GPU block-Lanczos + CADO √ | ~4 h | anonymous participant |
 
-The GPU-GNFS solvers (460→480→500) form a single evolving codebase: a from-scratch
+The GPU-GNFS solvers (460→480→500→512→530) form a single evolving codebase: a from-scratch
 CUDA lattice siever (`gpu_loop`) that moves NFS relation collection — the dominant
 cost — onto the GPU, with the downstream (filtering, linear algebra, square root)
 progressively GPU-accelerated as the modulus grew. Successive milestones building
 on earlier winners' published code is by design — Enigma open-sources each winning
-solution so the next competitor starts from it — so shared lineage does not imply
-shared authorship: the 460-bit and 480-bit milestones were won by different keys.
+solution so the next competitor starts from it — so **shared lineage does not imply
+shared authorship**. These five milestones share a code lineage but were won by
+*three different keys*: the 460-bit by an anonymous key, the 480→512 milestones by
+Xdev's key, and the 530-bit by yet another anonymous key. The 530-bit submission
+even carries an inherited "Written by Xdev" header, but its winning key is **not**
+Xdev's, so — as with the 460-bit milestone — it is credited anonymously (see
+[`NOTICE.md`](NOTICE.md)). The 560-bit milestone is a **separate codebase**: it
+drops `gpu_loop` for the Cognition Research CADO-NFS tree's GPU `glas` lattice
+siever, and was won by a fourth, anonymous key.
 
 ## Layout
 
@@ -36,7 +46,10 @@ solutions/
   340-bit/    # YAFU SIQS solver (anonymous participant)
   460-bit/    # GPU-GNFS v1 (anonymous participant)
   480-bit/    # GPU-GNFS v2 (Xdev)
-  500-bit/    # GPU-GNFS v3 (Xdev)  — standing frontier
+  500-bit/    # GPU-GNFS v3 (Xdev)
+  512-bit/    # GPU-GNFS v4 (Xdev)
+  530-bit/    # GPU-GNFS v5 (anonymous participant)
+  560-bit/    # CADO-NFS `glas` GPU siever (anonymous participant)  — standing frontier
 tools/
   relicense.py   # classifies custom vs vendored files; normalizes headers to AGPL-3.0
 docs/
@@ -122,7 +135,9 @@ and run instructions live in each `solutions/<milestone>/README.md`.
 
 ## Credit
 
-The 480-bit and 500-bit GPU-GNFS solvers were built by the competition participant
-**Xdev** (per the authorship headers in those submissions). The 340-bit and 460-bit
-solvers were submitted by anonymous participants. The ~320-bit baseline is
-qBitTensor Labs' reference example. See [`NOTICE.md`](NOTICE.md).
+The 480-bit, 500-bit and 512-bit GPU-GNFS solvers were built by the competition
+participant **Xdev** (per the authorship headers in those submissions, whose winning
+key matches across all three). The 340-bit, 460-bit, 530-bit and 560-bit solvers were
+submitted by anonymous participants — the 530-bit carries an inherited "Written by
+Xdev" header but was won by a different key, so it is credited anonymously. The
+~320-bit baseline is qBitTensor Labs' reference example. See [`NOTICE.md`](NOTICE.md).

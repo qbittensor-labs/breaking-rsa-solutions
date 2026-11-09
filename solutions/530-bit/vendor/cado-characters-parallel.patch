@@ -1,0 +1,479 @@
+--- a/cado-nfs/linalg/CMakeLists.txt	2026-09-27 18:22:01.931555628 +0000
++++ b/cado-nfs/linalg/CMakeLists.txt	2026-09-27 18:22:01.934555600 +0000
+@@ -17,6 +17,10 @@
+ 
+ add_executable(characters characters.cpp bwc/worker-threads.c)
+ target_link_libraries(characters bitlinalg utils_with_io pthread)
++# RSA-530 parallel-characters patch: in-process gzip reader. Link zlib
++# statically so the binary needs no libz.so at run time.
++find_library(CHARACTERS_ZLIB NAMES libz.a z REQUIRED)
++target_link_libraries(characters ${CHARACTERS_ZLIB})
+ install(TARGETS characters RUNTIME DESTINATION ${LIBSUFFIX}/linalg)
+ 
+ if(HAVE_M4RI)
+--- a/cado-nfs/linalg/characters.cpp	2026-09-27 18:22:01.931555628 +0000
++++ b/cado-nfs/linalg/characters.cpp	2026-09-27 18:22:01.934555600 +0000
+@@ -90,6 +90,16 @@
+ 
+ #include <sys/stat.h>
+ 
++#include <atomic>
++#include <cerrno>
++#include <condition_variable>
++#include <deque>
++#include <memory>
++#include <mutex>
++#include <string>
++#include <thread>
++
++#include <zlib.h>
+ #include <gmp.h>
+ #include "fmt/base.h"
+ 
+@@ -448,6 +458,390 @@
+     return res;
+ }
+ 
++
++/* {{{ fast parallel path (RSA-530 patch)
++ *
++ * The stock path above funnels every relation through filter_rels(): an
++ * external "gzip -dc" pipe, then a single-threaded line splitter/parser,
++ * then the character evaluation. At c160 (36M purged relations, 4 GB of
++ * text) that runs at ~110k rels/s (~330 s) on 4 of 16 cores.
++ *
++ * Here: one thread inflates the purged file in-process with zlib (gzread
++ * also passes uncompressed files through, e.g. a memfd path) into 8 MB
++ * line-aligned chunks and numbers the relations exactly as filter_rels()
++ * does (every line that does not start with '#' or '\n' gets the next
++ * number); nthreads workers parse a,b with the SAME ab_block parser and
++ * call the SAME eval_64chars() on the SAME character list, writing row
++ * rel.num of the big character matrix. Concurrently, another thread reads
++ * the index file into memory, so the small character matrix is then a
++ * parallel XOR pass. The resulting matrices are bit-for-bit those of the
++ * stock code, hence so is the output kernel file.
++ *
++ * Set CADO_CHARS_STOCK=1 in the environment to force the stock path.
++ */
++namespace fastchars {
++
++struct gz_reader {
++    gzFile f = nullptr;
++    std::string name;
++    uint64_t nbytes = 0;
++    explicit gz_reader(const char * fn) : name(fn) {
++        f = gzopen(fn, "rb");
++        if (f == nullptr) {
++            fmt::print(stderr, "Error: cannot open {}: {}\n", fn, strerror(errno));
++            exit(EXIT_FAILURE);
++        }
++        gzbuffer(f, 1U << 22);
++    }
++    gz_reader(gz_reader const &) = delete;
++    gz_reader & operator=(gz_reader const &) = delete;
++    ~gz_reader() { if (f) gzclose(f); }
++    /* read up to n bytes; short count only at end of file */
++    size_t read(char * dst, size_t n) {
++        size_t got = 0;
++        while (got < n) {
++            unsigned int const want = (unsigned int) std::min<size_t>(n - got, 1U << 30);
++            int const r = gzread(f, dst + got, want);
++            if (r < 0) {
++                int e;
++                fmt::print(stderr, "Error: gzread({}): {}\n", name, gzerror(f, &e));
++                exit(EXIT_FAILURE);
++            }
++            if (r == 0) {
++                int e;
++                const char * msg = gzerror(f, &e);
++                if (e != Z_OK && e != Z_BUF_ERROR) {
++                    fmt::print(stderr, "Error: gzread({}): {}\n", name, msg);
++                    exit(EXIT_FAILURE);
++                }
++                if (e == Z_BUF_ERROR) {
++                    /* zlib reports a truncated gzip stream this way */
++                    fmt::print(stderr, "Error: gzread({}): truncated input: {}\n", name, msg);
++                    exit(EXIT_FAILURE);
++                }
++                break;
++            }
++            got += r;
++        }
++        nbytes += got;
++        return got;
++    }
++};
++
++template<typename T>
++struct bqueue {
++    std::mutex mx;
++    std::condition_variable cv;
++    std::deque<T> q;
++    bool closed = false;
++    void put(T x) {
++        std::lock_guard<std::mutex> const lk(mx);
++        q.push_back(std::move(x));
++        cv.notify_one();
++    }
++    bool get(T & x) {
++        std::unique_lock<std::mutex> lk(mx);
++        cv.wait(lk, [&]{ return !q.empty() || closed; });
++        if (q.empty()) return false;
++        x = std::move(q.front());
++        q.pop_front();
++        return true;
++    }
++    void close() {
++        std::lock_guard<std::mutex> const lk(mx);
++        closed = true;
++        cv.notify_all();
++    }
++};
++
++struct chunk {
++    std::unique_ptr<char[]> buf;
++    size_t cap = 0;
++    size_t len = 0;
++    uint64_t base = 0;     /* number of the first relation in the chunk */
++    uint64_t nrels = 0;
++    void reserve(size_t n) {
++        if (cap >= n) return;
++        std::unique_ptr<char[]> nb(new char[n]);
++        if (len) memcpy(nb.get(), buf.get(), len);
++        buf = std::move(nb);
++        cap = n;
++    }
++};
++
++static inline bool is_rel_line(char c) { return c != '#' && c != '\n'; }
++
++/* {{{ index file, parsed in memory (same grammar as the fscanf calls of
++ * small_character_matrix: "%" SCNu64, then per row "%d" and that many "%x") */
++struct index_csr {
++    uint64_t nrows = 0;
++    std::vector<uint64_t> off;
++    std::vector<uint32_t> cols;
++};
++
++struct char_reader {
++    gz_reader g;
++    std::unique_ptr<char[]> b;
++    size_t pos = 0, len = 0;
++    static constexpr size_t CAP = 1U << 22;
++    explicit char_reader(const char * fn) : g(fn), b(new char[CAP]) {}
++    inline int get() {
++        if (pos == len) {
++            len = g.read(b.get(), CAP);
++            pos = 0;
++            if (len == 0) return EOF;
++        }
++        return (unsigned char) b[pos++];
++    }
++    inline int peek_after_ws() {
++        int c;
++        do { c = get(); } while (c == ' ' || c == '\n' || c == '\t' || c == '\r' || c == '\v' || c == '\f');
++        return c;
++    }
++    /* read an unsigned integer in base 10 or 16 */
++    template<unsigned int base>
++    uint64_t number(const char * what, uint64_t row) {
++        using cado::relation_building_blocks::ugly;
++        int c = peek_after_ws();
++        uint64_t w = 0;
++        unsigned int v;
++        int nd = 0;
++        for( ; c != EOF && (v = ugly[c]) < base ; c = get(), nd++) {
++            w = w * base + v;
++        }
++        if (nd == 0) {
++            fmt::print(stderr, "Error: index file {}: cannot parse {} at row {}\n",
++                    g.name, what, row);
++            exit(EXIT_FAILURE);
++        }
++        if (c != EOF && !(c == ' ' || c == '\n' || c == '\t' || c == '\r' || c == '\v' || c == '\f')) {
++            fmt::print(stderr, "Error: index file {}: unexpected character '{}' after {} at row {}\n",
++                    g.name, (char) c, what, row);
++            exit(EXIT_FAILURE);
++        }
++        return w;
++    }
++};
++
++static void read_index(const char * indexname, index_csr & I)
++{
++    char_reader R(indexname);
++    I.nrows = R.number<10>("row count", 0);
++    I.off.assign(I.nrows + 1, 0);
++    I.cols.reserve(I.nrows * 16);
++    for (uint64_t i = 0; i < I.nrows; i++) {
++        uint64_t const nc = R.number<10>("row weight", i);
++        ASSERT_ALWAYS(nc <= (uint64_t) INT_MAX);
++        for (uint64_t k = 0; k < nc; k++) {
++            uint64_t const col = R.number<16>("column", i);
++            ASSERT_ALWAYS(col <= UINT32_MAX);
++            I.cols.push_back((uint32_t) col);
++        }
++        I.off[i + 1] = I.cols.size();
++    }
++}
++/* }}} */
++
++template<typename relation_type>
++static blockmatrix big_character_matrix(
++        std::vector<alg_prime_t> const & chars,
++        const char * purgedname,
++        cxx_cado_poly const & cpoly,
++        int nthreads)
++{
++    uint64_t nrows_hdr, ncols_hdr;
++    purgedfile_read_firstline (purgedname, &nrows_hdr, &ncols_hdr);
++    blockmatrix res(nrows_hdr, chars.size());
++    res.set_zero();
++    uint64_t const nrows = res.nrows();
++
++    fmt::print(stderr, "Reading {} pairs from {} and computing {} characters"
++            " [parallel reader, {} threads]\n",
++            nrows, purgedname, chars.size(), nthreads);
++
++    double const t0 = wct_seconds();
++    constexpr size_t CHUNK = 8U << 20;
++    size_t const nbufs = 2 * (size_t) nthreads + 2;
++
++    bqueue<std::unique_ptr<chunk>> todo, pool;
++    for (size_t i = 0; i < nbufs; i++)
++        pool.put(std::make_unique<chunk>());
++
++    std::atomic<uint64_t> overflow { 0 };
++
++    auto worker = [&]() {
++        std::unique_ptr<chunk> C;
++        relation_type rel;
++        while (todo.get(C)) {
++            char const * p = C->buf.get();
++            char const * const e = p + C->len;
++            uint64_t num = C->base;
++            while (p < e) {
++                char const * nl = (char const *) memchr(p, '\n', e - p);
++                if (is_rel_line(*p)) {
++                    if (num >= nrows) {
++                        overflow++;
++                    } else {
++                        unsigned char const * it = (unsigned char const *) p;
++                        rel.parse(it);
++                        rel.num = num;
++                        for(size_t cg = 0 ; cg < chars.size() ; cg+=64)
++                            res[rel.num][cg] = eval_64chars(rel, chars.data() + cg, cpoly);
++                    }
++                    num++;
++                }
++                if (!nl) break;
++                p = nl + 1;
++            }
++            ASSERT_ALWAYS(num == C->base + C->nrels);
++            C->len = 0;
++            pool.put(std::move(C));
++        }
++    };
++
++    std::vector<std::thread> workers;
++    workers.reserve(nthreads);
++    for (int i = 0; i < nthreads; i++)
++        workers.emplace_back(worker);
++
++    /* producer: inflate, cut at line boundaries, number the relations */
++    gz_reader G(purgedname);
++    std::vector<char> carry;
++    uint64_t nrels = 0;
++    for (bool eof = false; !eof; ) {
++        std::unique_ptr<chunk> C;
++        pool.get(C);
++        C->len = 0;
++        C->reserve(std::max(CHUNK, 2 * carry.size()));
++        if (!carry.empty()) {
++            memcpy(C->buf.get(), carry.data(), carry.size());
++            C->len = carry.size();
++            carry.clear();
++        }
++        size_t cut;
++        for (;;) {
++            size_t const want = C->cap - C->len;
++            size_t const got = G.read(C->buf.get() + C->len, want);
++            C->len += got;
++            if (got < want) eof = true;
++            char const * last = nullptr;
++            for (size_t k = C->len; k-- > 0; )
++                if (C->buf[k] == '\n') { last = C->buf.get() + k; break; }
++            if (eof) {
++                cut = C->len;
++                if (C->len && C->buf[C->len - 1] != '\n') {
++                    /* RSA-530: well-formed purge output always ends with a newline; a missing one
++                     * means a truncated/damaged input, which would yield WRONG dependencies. */
++                    fmt::print(stderr, "Error: {} does not end with a newline (truncated input?)\n", purgedname);
++                    exit(EXIT_FAILURE);
++                }
++                break;
++            }
++            if (last) {
++                cut = last + 1 - C->buf.get();
++                break;
++            }
++            C->reserve(2 * C->cap);   /* line longer than the chunk */
++        }
++        if (cut < C->len) {
++            carry.assign(C->buf.get() + cut, C->buf.get() + C->len);
++            C->len = cut;
++        }
++        if (C->len == 0) {
++            pool.put(std::move(C));
++            continue;
++        }
++        /* count relation lines, exactly as filter_rels() numbers them */
++        uint64_t n = 0;
++        {
++            char const * p = C->buf.get();
++            char const * const e = p + C->len;
++            while (p < e) {
++                if (is_rel_line(*p)) n++;
++                char const * nl = (char const *) memchr(p, '\n', e - p);
++                if (!nl) break;
++                p = nl + 1;
++            }
++        }
++        C->base = nrels;
++        C->nrels = n;
++        nrels += n;
++        todo.put(std::move(C));
++    }
++    todo.close();
++    for (auto & t : workers) t.join();
++
++    double const dt = wct_seconds() - t0;
++    printf("# Done: Read %" PRIu64 " relations in %.1fs -- %.1f MB/s -- %.1f rels/s\n",
++            nrels, dt, (double) G.nbytes / 1.0e6 / dt, (double) nrels / dt);
++    fflush(stdout);
++    if (overflow) {
++        fmt::print(stderr, "Error: {} has more relations ({}) than announced in its header ({})\n",
++                purgedname, nrels, nrows);
++        exit(EXIT_FAILURE);
++    }
++    if (nrels != nrows) {
++        /* RSA-530: fewer relations than the header announces = truncated input -> wrong dependencies */
++        fmt::print(stderr, "Error: {} announces {} relations but contains {} (truncated input?)\n",
++                purgedname, nrows, nrels);
++        exit(EXIT_FAILURE);
++    }
++    return res;
++}
++
++static blockmatrix small_character_matrix(blockmatrix const & bcmat,
++        index_csr const & I, int nthreads)
++{
++    unsigned int const nchars2 = bcmat.ncols();
++    uint64_t const small_nrows = I.nrows;
++    blockmatrix res(small_nrows, nchars2);
++    res.set_zero();
++    uint64_t const bnrows = bcmat.nrows();
++    std::atomic<uint64_t> bad { 0 };
++
++    auto work = [&](uint64_t i0, uint64_t i1) {
++        for (uint64_t i = i0; i < i1; i++) {
++            for(unsigned int cg = 0 ; cg < nchars2 ; cg+=64) {
++                uint64_t acc = 0;
++                for (uint64_t k = I.off[i]; k < I.off[i + 1]; k++) {
++                    uint32_t const col = I.cols[k];
++                    if (col >= bnrows) { bad++; continue; }
++                    acc ^= bcmat[col][cg];
++                }
++                res[i][cg] = acc;
++            }
++        }
++    };
++    /* row ranges aligned on 64 so that no two threads share a block row */
++    uint64_t const nblk = iceildiv(small_nrows, 64);
++    int const nt = (int) std::max<uint64_t>(1, std::min<uint64_t>(nthreads, nblk));
++    std::vector<std::thread> th;
++    for (int t = 0; t < nt; t++) {
++        uint64_t const i0 = std::min<uint64_t>(small_nrows, 64 * (nblk * t / nt));
++        uint64_t const i1 = std::min<uint64_t>(small_nrows, 64 * (nblk * (t + 1) / nt));
++        th.emplace_back(work, i0, i1);
++    }
++    for (auto & t : th) t.join();
++    ASSERT_ALWAYS(bad == 0);
++    return res;
++}
++
++static bool usable(const char * purgedname, const char * indexname, bool largeab)
++{
++    if (largeab) return false;
++    const char * env = getenv("CADO_CHARS_STOCK");
++    if (env && *env && strcmp(env, "0") != 0) return false;
++    /* gzread handles gzip and plain files; leave other codecs to the stock path */
++    for (const char * s : { ".bz2", ".xz", ".lzma", ".zst", ".zstd", ".lz4" }) {
++        if (has_suffix(purgedname, s) || has_suffix(indexname, s))
++            return false;
++    }
++    return true;
++}
++
++} /* namespace fastchars */
++/* }}} */
++
+ /* We support both ascii and binary format, which is close to a bug. */
+ 
+ static blockmatrix
+@@ -756,13 +1150,50 @@
+ 
+     cado::filter_io_details::interpret_parameters(pl);
+ 
+-    blockmatrix bcmat = big_character_matrix(chars, purgedname,
+-            cpoly, nthreads, pl.parse<bool>("large-ab"));
++    bool const largeab = pl.parse<bool>("large-ab");
++    blockmatrix scmat(0, 0);
++    if (fastchars::usable(purgedname, indexname, largeab)) {
++        if (nthreads < 1) nthreads = 1;
++        /* read the index file while the big character matrix is built */
++        fastchars::index_csr I;
++        std::thread ixthread(fastchars::read_index, indexname, std::ref(I));
++        using relation_type = cado::relation_building_blocks::ab_block<uint64_t, 16>;
++        blockmatrix bcmat = fastchars::big_character_matrix<relation_type>(
++                chars, purgedname, cpoly, nthreads);
++        fprintf(stderr, "done building big character matrix at wct=%.1fs\n", wct_seconds()-wct0);
++        ixthread.join();
++        scmat = fastchars::small_character_matrix(bcmat, I, nthreads);
++        fprintf(stderr, "done building small character matrix at wct=%.1fs\n", wct_seconds()-wct0);
++        if (getenv("CADO_CHARS_VERIFY")) {
++            /* self-check: rebuild both matrices with the stock code and
++             * compare them word for word (slow: stock speed) */
++            blockmatrix const b2 = big_character_matrix(chars, purgedname,
++                    cpoly, nthreads, largeab);
++            blockmatrix const s2 = small_character_matrix(
++                    const_cast<blockmatrix &>(b2), indexname);
++            auto same = [](blockmatrix const & x, blockmatrix const & y) {
++                if (x.nrows() != y.nrows() || x.ncols() != y.ncols()) return false;
++                for (unsigned int i = 0; i < x.nrows(); i++)
++                    for (unsigned int cg = 0; cg < x.ncols(); cg += 64)
++                        if (x[i][cg] != y[i][cg]) return false;
++                return true;
++            };
++            bool const ok = same(bcmat, b2) && same(scmat, s2);
++            fprintf(stderr, "VERIFY: fast vs stock big (%u x %u) and small (%u x %u)"
++                    " character matrices: %s\n",
++                    bcmat.nrows(), bcmat.ncols(), scmat.nrows(), scmat.ncols(),
++                    ok ? "IDENTICAL" : "MISMATCH");
++            if (!ok) exit(EXIT_FAILURE);
++        }
++    } else {
++        blockmatrix bcmat = big_character_matrix(chars, purgedname,
++                cpoly, nthreads, largeab);
+ 
+-    fprintf(stderr, "done building big character matrix at wct=%.1fs\n", wct_seconds()-wct0);
++        fprintf(stderr, "done building big character matrix at wct=%.1fs\n", wct_seconds()-wct0);
+ 
+-    blockmatrix const scmat = small_character_matrix(bcmat, indexname);
+-    fprintf(stderr, "done building small character matrix at wct=%.1fs\n", wct_seconds()-wct0);
++        scmat = small_character_matrix(bcmat, indexname);
++        fprintf(stderr, "done building small character matrix at wct=%.1fs\n", wct_seconds()-wct0);
++    }
+ 
+     unsigned int const small_nrows = scmat.nrows();
+ 

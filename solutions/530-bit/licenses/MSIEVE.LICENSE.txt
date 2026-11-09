@@ -1,0 +1,26 @@
+	  fastest quadratic sieve available anywhere, by a wide margin.
+	  Libraries like YAFU have since pushed the performance envelope
+	  for the quadratic sieve much harder, and the focus in msieve
+	  has shifted to the number field sieve.
+
+	- To be complete and comprehensive. I've tried to make as many
+	  parts of the library state-of-the-art as possible. Parts of
+	  the NFS code have turned into research platforms in their own
+	  right.
+
+	- To be simple to use. The only input is the integer to be factored.
+	  Everything else happens automatically, though a certain amount
+	  of user control is possible if you know what you're doing.
+
+	- To be free (as in beer). The entire code base is released into the
+	  public domain. This is hobby stuff for me, and the more it's used
+	  the better. I have made every effort to avoid using external
+	  code that is licensed under the GPL, opting instead for less
+	  restrictive licenses.
+
+If you choose to use Msieve, please let me know how it goes. I welcome bug
+reports, suggestions, optimizations, ports to new platforms, complaints,
+boasts, whatever.
+
+
+Getting Msieve

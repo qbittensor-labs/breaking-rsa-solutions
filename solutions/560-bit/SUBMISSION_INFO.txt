@@ -1,0 +1,7 @@
+rsa560_solver: RSA-560 (c169) GNFS on one GPU (Cognition glas siever, CADO-NFS filtering, GPU block Lanczos, CADO sqrt).
+repo commit: c00616b84c077199d8133fd8c07e97b072d17d3e  (branch s5)
+CADO-NFS:    cognition-research/cado-nfs-public b5ca9c4fd3e331edc8978f93830f8de1e8dda70c (vendored in third_party/cado-nfs-public)
+build:       docker build -t rsa560 .      (x86_64; CUDA sm_120; network for apt, pip and the nvidia/cuda base images)
+run:         docker run --rm --gpus all --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=10g \
+               --memory 85g --cpus 24 --user miner rsa560 <challenge_id> '{"difficulty":560,"num":"<N>","num_bits":560}'
+config:      pipeline_c169/factor_c169.sh defaults under CONTAINER=1, RSA560_LPB1=33

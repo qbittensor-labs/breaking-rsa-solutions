@@ -1,0 +1,48 @@
+--- /tmp/sieve_core_gpu.cu.orig	2026-10-17 21:34:22
++++ gpu-siever/src/sieve_core_gpu.cu	2026-10-17 22:20:48
+@@ -3651,7 +3651,9 @@
+         double dens = 0.0;
+         for (double d : part_dens)
+             dens += d;
+-        ctx.bucket_cap[side] = ((uint32_t)(SREG * dens * 1.25) & ~31u) + 512;
++        double margin = 1.25;   /* GLAS_BUCKET_MARGIN: headroom over the estimated hit density (3LP lambda ~2.8 at lim 150M overflows 1.25) */
++        if (char const * e = getenv("GLAS_BUCKET_MARGIN")) margin = std::max(1.0, atof(e));
++        ctx.bucket_cap[side] = ((uint32_t)(SREG * dens * margin) & ~31u) + 512;
+         /* the slab layout fills whole 64-entry pieces */
+         if (ctx.bucket_slab)
+             ctx.bucket_cap[side] = (ctx.bucket_cap[side] + 63) & ~63u;
+@@ -3818,10 +3820,19 @@
+     uint32_t const fill_coprime = ctx.fill_coprime;
+     CUDA_CHECK(cudaMemcpyToSymbol(c_fill_coprime, &fill_coprime, 4));
+     CUDA_CHECK(cudaMemcpyToSymbol(c_gate_shift, &ctx.gate_shift, 4));
+-    ctx.max_survivors = chunk / 64;
+-    ctx.max_hits = chunk / 8;
+-    if (ctx.assemble)
+-        ctx.fcand_cap = std::min(ctx.max_survivors, FCAND_MAX);
++    {   /* GLAS_SURV_DIV / GLAS_HITS_DIV / GLAS_FCAND_MAX: enlarge the per-chunk survivor, resieve-hit and
++         * candidate capacities (3 large primes on a side needs several times the 2LP survivor count) */
++        unsigned sd = 64, hd = 8;
++        if (char const * e = getenv("GLAS_SURV_DIV")) sd = std::max(1, atoi(e));
++        if (char const * e = getenv("GLAS_HITS_DIV")) hd = std::max(1, atoi(e));
++        ctx.max_survivors = chunk / sd;
++        ctx.max_hits = chunk / hd;
++    }
++    if (ctx.assemble) {
++        uint32_t fm = FCAND_MAX;
++        if (char const * e = getenv("GLAS_FCAND_MAX")) fm = (uint32_t)std::max(1, atoi(e));
++        ctx.fcand_cap = std::min(ctx.max_survivors, fm);
++    }
+     if (ctx.filter) {
+         if (!ctx.rhits)
+             CUDA_CHECK(cub::DeviceRadixSort::SortKeys(
+@@ -4434,8 +4445,8 @@
+             CUDA_CHECK(cudaStreamSynchronize(st));
+             CUDA_CHECK(cudaStreamSynchronize(s.out_stream));
+             release_slot(slot);
+-            fprintf(stderr, "# GPU overflow at q=%lu; falling back to CPU\n",
+-                    (unsigned long)task.q);
++            fprintf(stderr, "# GPU overflow at q=%lu (flag=%u surv=%u/%u hits=%u/%u); falling back to CPU\n",
++                    (unsigned long)task.q, overflow, n_surv, ctx.max_survivors, n_hits, ctx.max_hits);
+             /* resieve the whole area, keep only the chunks not yet sunk */
+             sieve_result full = sieve_one_cpu(task, fb, tt);
+             uint64_t const xcut = (uint64_t)j0 << task.logI;

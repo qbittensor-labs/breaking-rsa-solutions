@@ -1,0 +1,13 @@
+cuda-sieve: https://github.com/kyleaskine/cuda-sieve commit db85a39 (2026-09-25), CC0-1.0.
+fbgen_gpu: built unmodified: make bench fbgen fbgen_gpu normscan GPU_ARCH=120 CF_LMAX=3 BN_LIMBS=12 HOST_TUNE=-march=x86-64-v3 CUDART_LINK=static in nvidia/cuda:13.0.1-devel-ubuntu24.04.
+bench: db85a39 + vendor/cuda-sieve-fast-emit.patch, built with BN_LIMBS=8 instead of 12 (byte-identical relations, -2.2% ms/q) (bench/pipeline.cuh only: host join-loop emission built in a line
+  buffer + one fwrite per line instead of ~20 fprintf calls, and without --cofactor an async writer thread that sorts/formats/writes
+  the packed lines in FIFO order, drained before every checkpoint and at close, and the per-q TD small-prime tables built after both sides' sieve
+  issue (overlap); output byte-identical to unpatched db85a39 for --relations,
+  --candidates and --cofactor), same make line (only `make bench` re-run; bench_kernels.o is the one object including
+  pipeline.cuh).
+cofac_cpu (cuda-sieve/cofac_cpu, not part of cuda-sieve): our code, vendor/cofac/cofac_cpu.c + vendor/cofac/facul_split.cpp,
+  linked with UNMODIFIED CADO-NFS 9bb8fc079 sieve/ecm facul objects + utils/libutils.a (LGPL v2.1+). Build: in the configured
+  CADO tree (vendor/cado-local.sh), `make facul testbench` (produces sieve/ecm/CMakeFiles/facul.dir/*.o), then
+  vendor/cofac/build_cofac.sh in nvidia/cuda:13.0.1-devel-ubuntu24.04 -> cofac_cpu_facul, shipped as cuda-sieve/cofac_cpu.
+  0 AVX-512 instructions.

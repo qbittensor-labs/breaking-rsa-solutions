@@ -1,0 +1,41 @@
+compat-include/ -- glibc >= 2.41 vs CUDA 13.0 header clash
+==========================================================
+
+glibc 2.41 added the C23 reciprocal-square-root functions to <bits/mathcalls.h>:
+
+    __MATHCALL_VEC (rsqrt,, (_Mdouble_ __x));     /* line 206 in glibc 2.43 */
+
+which expands to `rsqrt`/`rsqrtf`/`rsqrtl` declared `noexcept (true)`. CUDA 13.0's
+crt/math_functions.h (lines 629 / 653) declares the same three names as
+`__device_builtin__` WITHOUT an exception specification. nvcc's front end rejects the
+pair outright:
+
+    error: exception specification is incompatible with that of previous function "rsqrt"
+
+so gpu_loop.cu does not compile at all on such a box. CUDA fixed this on its side after
+13.0, but 13.0 is a CEILING here, not a floor -- these binaries link cudart statically and
+a 13.1+ build demands a driver newer than the validators' 580.x, so it would not start at
+all (install-env.sh header).
+
+The fix therefore goes on the glibc side. bits/mathcalls.h here is a byte-identical copy of
+/usr/include/x86_64-linux-gnu/bits/mathcalls.h with that ONE declaration commented out;
+build.sh puts this directory on -I ahead of the system paths, and only when a probe compile
+actually fails.
+
+Why not -D: the guard is `#if __GLIBC_USE (IEC_60559_FUNCS_EXT_C23)`, and
+bits/libc-header-start.h #undefs that macro and re-derives it from __USE_GNU -- which g++
+always defines. A -D on the command line does not survive.
+
+Why not a -include shim that renames the symbols: nvcc's own pre-includes (cuda_runtime.h)
+are processed before any -include file, so <math.h> is already through by then. Measured.
+
+Host code in gpu_loop.cu does not call rsqrt/rsqrtf/rsqrtl, so dropping the host
+declaration costs nothing; device code gets them from CUDA as before.
+
+Regenerate after a glibc upgrade:
+
+    sed '206s|^__MATHCALL_VEC (rsqrt,, (_Mdouble_ __x));$|/* suppressed */|' \
+        /usr/include/x86_64-linux-gnu/bits/mathcalls.h > compat-include/bits/mathcalls.h
+
+and check the line number still matches -- diff against the system header must show
+exactly one changed line.
